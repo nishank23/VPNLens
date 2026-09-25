@@ -1,16 +1,4 @@
-select ip_from, ip_to ,int8range(ip_from, ip_to, '[]') AS ip_range
-from raw_ip2location LIMIT 5;
-
-SELECT ip_from, ip_to,NULLIF(country_code,'-') as country_code,
-					NULLIF(country_name,'-') as country_name, 
-					NULLIF(region_name,'-') as region_name, 
-					NULLIF(city_name,'-') as city_name ,
-					latitude,longitude, 
-					NULLIF(zip_code,'-') as zip_code , 
-					NULLIF(time_zone,'-') as time_zone,
-					int8range(ip_from, ip_to, '[]') AS ip_range
-from raw_ip2location LIMIT 5;
-BEGIN;
+-- BEGIN;
 TRUNCATE Table ip2location;
 INSERT INTO ip2location(
 	ip_from,
@@ -34,5 +22,3 @@ SELECT ip_from, ip_to,NULLIF(country_code,'-') as country_code,
 					NULLIF(time_zone,'-') as time_zone,
 					int8range(ip_from, ip_to, '[]') AS ip_range
 from raw_ip2location;
-
-COMMIT;
