@@ -13,3 +13,13 @@ SELECT * FROM rollback_practice;
 SELECT * FROM rollback_practice;
 SELECT COUNT(*) FROM raw_ip2location;
 
+CREATE TEMP TABLE test_clean(
+	id INTEGER
+);
+CREATE TEMP TABLE test_raw(
+	id INTEGER
+);
+
+INSERT INTO test_clean(id) values(1);
+
+select * from test_clean;
