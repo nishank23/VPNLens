@@ -20,3 +20,9 @@ CREATE TABLE asn_prefix_origins(
 );
 
 COMMIT;
+
+CREATE INDEX IF NOT EXISTS idx_asn_prefix_origins_prefix
+ON asn_prefix_origins
+USING GIST (prefix inet_ops);
+
+ANALYZE asn_prefix_origins;

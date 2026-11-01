@@ -6,7 +6,7 @@ VPNLens turns downloaded IP datasets into structured, queryable PostgreSQL table
 
 After loading data, SQL queries can retrieve an address's estimated location and its most specific matching routing origins. An ASN (Autonomous System Number) identifies a network; an IP prefix describes a block of addresses.
 
-The long-term goal is to combine location, network operator, and VPN/proxy evidence for an IP address. **The current implementation provides local IPv4 geolocation and routing-prefix pipelines. VPN detection, the API, and the dashboard are not implemented yet.**
+The long-term goal is to combine location, network operator, and VPN/proxy evidence for an IP address. **The current implementation provides local IPv4 geolocation, routing-prefix, and raw ASN organization pipelines. The combined IPv4 lookup includes nested ASN organization owners and independent snapshot selection. VPN detection, the API, and the dashboard are not implemented yet.**
 
 ## At a glance
 
@@ -30,6 +30,8 @@ The long-term goal is to combine location, network operator, and VPN/proxy evide
 - **ASN transformation:** expand underscore-separated origin alternatives into `asn_prefix_origins`, while preserving comma-separated AS sets as text.
 - **Routing lookup:** find the most specific matching prefix and return all equally specific origin groups.
 - **Validation and recovery:** inspect data with SQL and verify rollback behavior with the documented manual test.
+
+- **Organization ingestion:** load both sections of a dated CAIDA AS-to-Organization snapshot into raw tables with atomic replacement and per-section count checks. See [instructions and verification](docs/asn-organizations.md).
 
 `api/main.py`, `dashboard/app.py`, and `ingestion/vpnapi.py` are empty placeholders. They do not expose a working application or VPN detection service.
 
@@ -68,13 +70,24 @@ flowchart TD
         A4 --> A5["SQL longest-prefix lookup<br/>Keep tied origins"]
     end
 
+    subgraph ORG["Organization pipeline"]
+        O0["Downloaded CAIDA AS-to-Organization snapshot"] --> O1["ingestion/asn_organizations.py<br/>Two streaming COPY passes"]
+        O1 --> O2[("raw_asn_mappings")]
+        O1 --> O3[("raw_org_mappings")]
+    end
+    G4 --> L["sql/ip_lookup.sql<br/>Location, routing groups, nested ASN owners"]
+    A4 --> L
+    O2 --> L
+    O3 --> L
+    L --> C["lookup_ip.py<br/>Read-only JSON CLI"]
+
     G2 -.-> V["Read-only SQL profiling<br/>sql/analytics.sql<br/>sql/asn_analytics.sql"]
     G4 -.-> V
     A2 -.-> V
     A4 -.-> V
 ```
 
-The pipelines are independent today. Combining their results into one IP enrichment response is a future step.
+The pipelines load independently. `sql/ip_lookup.sql` combines geolocation and the selected ASN snapshot; `lookup_ip.py` runs that combined lookup locally.
 
 ## Repository structure
 
@@ -90,6 +103,7 @@ VPNLens/
 │   └── vpnapi.py                # Placeholder for future VPN/proxy ingestion
 ├── transform_ip2location.py     # Transactional geolocation transformation runner
 ├── transform_asn_prefixes.py    # Transactional transformation for one ASN source file
+├── lookup_ip.py                 # Read-only combined lookup with JSON output
 ├── sql/
 │   ├── schema.sql              # Geolocation tables and GiST range index
 │   ├── transformers.sql        # Raw-to-clean geolocation SQL
@@ -97,6 +111,7 @@ VPNLens/
 │   ├── cleaning.sql            # Read-only placeholder-cleaning preview
 │   ├── asn_schema.sql          # Raw prefixes and expanded origin-group tables
 │   ├── asn_transformers.sql    # Parameterized origin-group expansion
+│   ├── ip_lookup.sql           # Parameterized geolocation and longest-prefix lookup
 │   ├── asn_analytics.sql       # Origin profiling, previews, and prefix lookup
 │   └── rollback_practice.sql   # Manual transaction-learning exercises
 ├── docs/
@@ -249,6 +264,38 @@ Inspect the terminal output: geolocation raw and clean counts should be equal an
 
 `sql/asn_analytics.sql` contains origin profiling and prefix lookup examples. Run selected queries in a SQL editor: one preview intentionally returns every expanded record and may produce over a million rows for a full source file.
 
+## ASN organization ingestion
+
+The third dataset has a [raw organization/ASN loader](docs/asn-organizations.md).
+It loads a dated CAIDA snapshot into the user-defined raw tables and preserves
+source blanks and snapshot metadata. A [read-only ASN organization lookup](docs/asn-organizations.md#run-the-standalone-organization-lookup)
+now runs through `lookup_asn_org.py`. Organization enrichment is included in the combined IP response.
+
+## Run the combined lookup
+
+The Python runner reads `sql/ip_lookup.sql`, binds all three arguments through psycopg,
+and prints matching rows as a JSON array. It loads the repository's `.env` file
+and executes the lookup in a read-only transaction. Run it after loading the
+geolocation and ASN tables:
+
+```bash
+python3 lookup_ip.py 8.8.8.8 routeviews-rv2-20261001-1200.pfx2as.gz 20261001.as-org2info.txt.gz
+```
+
+The first argument supplies `ip_address`; the second supplies the routing `source_file`;
+the third supplies `org_source_file`. Both snapshot filenames are explicit.
+Database errors propagate as a nonzero exit. This runner does not introduce a new
+invalid-input or recovery policy. Its input contract is a valid IPv4 host address
+and the desired ASN source filename. An unknown source still preserves the IP
+and any geolocation, with missing ASN fields represented by JSON `null`.
+
+For direct SQL-editor execution, use a scratch copy of the query. Replace every
+`%(ip_address)s` with a quoted IP literal, such as `'8.8.8.8'`, and every
+`%(source_file)s` with a quoted source filename. Keep the casts and select the
+complete `WITH` statement through its final semicolon. Replace `%(org_source_file)s`
+with a quoted organization filename, such as `'20261001.as-org2info.txt.gz'`, too. Retain the placeholders
+in the saved parameterized SQL file used by Python and the acceptance tests.
+
 ## Example IP lookups
 
 Run these SQL examples after loading data. Their results depend on your snapshot; they are not fixed claims about the example address.
@@ -298,20 +345,22 @@ During the documentation update on **2026-10-22**, the existing scripts were exe
 
 These were local integration checks, not a committed automated test suite, production benchmark, or end-to-end API/dashboard test. The fixture checks did not reload or modify the normal project database.
 
+The combined IP lookup has a focused [acceptance test suite](tests/test_ip_lookup.py). See [test setup and acceptance criteria](docs/ip-lookup-test.md). The user approved final review of the combined query on **2026-10-30**; the [benchmark record](docs/ip-lookup-benchmark.md) preserves the execution plans and checked sample output.
+
 ## Limitations and next milestones
 
 | Area | Current boundary / next step |
 | --- | --- |
 | Address family | The implemented loaders and numeric geolocation model target IPv4; IPv6 ingestion is not implemented |
 | VPN/proxy detection | Add one dedicated IP/range intelligence source; a hosting ASN alone does not establish VPN use |
-| Organization enrichment | Add an ASN-to-organization dataset; organization country and IP geolocation are different facts |
-| Unified lookup | Combine independently matched geolocation, routing, organization, and VPN evidence |
-| Performance | Geolocation has a GiST index; ASN lookup has no dedicated containment index or published benchmark |
+| Organization enrichment | CAIDA owner names, country codes, and source dates appear in nested owner arrays; organization country remains separate from IP location |
+| Unified lookup | Geolocation, routing, and organization owners are combined; VPN evidence remains planned |
+| Performance | Geolocation and ASN containment indexes are defined; [local ASN and combined lookup plans and result values recorded](docs/ip-lookup-benchmark.md) |
 | Automation | Add configurable snapshot selection, scheduled downloads, and job orchestration |
 | Application layer | Implement API and dashboard after the underlying data model is ready |
 | Quality gates | Expand automatic validation; many existing SQL checks require manual inspection |
 
-The intended enrichment scope uses four logical datasets: geolocation, prefix-to-ASN, ASN-to-organization, and one VPN/proxy intelligence source. Only the first two are ingested today. No commercial VPN provider has been integrated.
+The intended enrichment scope uses four logical datasets: geolocation, prefix-to-ASN, ASN-to-organization, and one VPN/proxy intelligence source. The first three are ingested today. No commercial VPN provider has been integrated.
 
 IP geolocation is an estimate. Routing origins reflect the selected snapshot. Neither identifies a person's exact location, and a VPN exit's location would describe the exit address. Future VPN classification must retain source and observation time; missing evidence must not be presented as proof that an IP is not a VPN.
 
@@ -321,3 +370,21 @@ IP geolocation is an estimate. Routing origins reflect the selected snapshot. Ne
 - Routing input: [CAIDA Routeviews Prefix to AS mappings Dataset for IPv4 and IPv6](https://www.caida.org/catalog/datasets/routeviews-prefix2as/). The current loader uses the IPv4 RouteViews snapshot named above. Follow CAIDA's acceptable-use and citation requirements.
 
 Dataset licenses are independent of this repository's code. This repository does not currently include a code license file.
+
+## Enriched lookup verification (2026-11-01)
+
+The combined SQL returns one row per tied longest-prefix origin group, with
+`asn_owners` containing each member's ASN, organization name/country code, and
+organization snapshot/source metadata. Unmapped members remain present with
+null owner details. Missing routing data preserves the input with an empty
+owner array. The root `snapshot_at` remains the routing timestamp.
+
+The CLI requires three positional arguments: IPv4 address, routing filename,
+and organization filename. This replaces the earlier two-argument CLI contract.
+Fixture tests validate the SQL against isolated temporary tables; full-snapshot
+read-only checks are separate evidence. API, frontend, and VPN detection remain
+unimplemented.
+
+Final verification on **2026-11-01**: all **31 automated tests** passed in
+disposable PostgreSQL. The final three-argument CLI was checked read-only
+against the loaded project snapshot. See [verification details](docs/asn-organizations.md#final-enriched-verification-2026-11-01).

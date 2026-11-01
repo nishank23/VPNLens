@@ -48,8 +48,9 @@ SELECT
     ingested_at
 FROM raw_asn_prefixes;
 
-
 -- prefix lookup.
+
+EXPLAIN (ANALYZE, BUFFERS)
 WITH matching_prefixes AS (SELECT
     prefix,
     origin_group,

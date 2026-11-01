@@ -4,7 +4,6 @@
 # Data
 /data/
 *.csv
-/tests/
 
 # Local Python environment and bytecode
 .venv/
