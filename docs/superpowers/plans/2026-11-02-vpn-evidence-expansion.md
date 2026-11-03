@@ -69,16 +69,16 @@ No worktree creation, staging, commit, push, public deployment, paid resource, V
 
 ## Gates and acceptance
 
-- [ ] Confirm the active repository/branch, absent CodeGraph index, and existing dirty files before execution. Do not touch the older chat worktree's codex-session file.
-- [ ] Pass pure producer tests before database wiring. Tests use fixtures, not live provider calls.
-- [ ] Complete the user SQL checkpoint in the integration plan. No live migration before disposable proof and user review.
-- [ ] With the feature flag off, preserve existing payloads and eleven-source behavior.
-- [ ] With it on, retain legacy success when extended publication fails; failed checks never renew freshness.
-- [ ] Preserve reviewed-browser imports as operator-attested; baseline age, two active receipts, changed IP and review are mandatory.
-- [ ] Keep residential_proxy_status unknown. The recorder does not manufacture connection-type evidence.
-- [ ] Run the existing test runner, new owned-file lint, frontend format/tests/build, and bounded browser checks after integration.
-- [ ] Record real source observations separately from fixtures and external vendor classifications. Do not claim most-provider coverage or remote CI success without measurement.
-- [ ] Review final diff and actual risks with the user. Do not push.
+- [x] Confirm the active repository/branch, absent CodeGraph index, and existing dirty files before execution. Do not touch the older chat worktree's codex-session file.
+- [x] Pass pure producer tests before database wiring. Tests use fixtures, not live provider calls.
+- [x] Complete additive SQL implementation and independent schema/core-query reviews under the user's later full delegation. Live migration followed disposable proof and those reviews.
+- [x] With the feature flag off, preserve existing payloads and eleven-source behavior.
+- [x] With it on, retain legacy success when extended publication fails; failed checks never renew freshness.
+- [x] Preserve reviewed-browser imports as operator-attested; baseline age, two active receipts, changed IP and review are mandatory.
+- [x] Keep residential_proxy_status unknown. The recorder does not manufacture connection-type evidence.
+- [x] Run the existing test runner, new owned-file lint, frontend format/tests/build, and bounded browser checks after integration.
+- [x] Record real source observations separately from fixtures and external vendor classifications. Do not claim most-provider coverage or remote CI success without measurement.
+- [x] Complete final diff/risk checks and perform the explicitly authorized normal feature-branch commit/push after acceptance. No force push or main-branch merge.
 
 ## Repository self-review
 
@@ -89,3 +89,5 @@ Each design requirement maps to one of the three plans: source onboarding/parsin
 Self-review checked the approved design section by section, shared field/function names, user ownership, disabled-source and rollback behavior, and the separation of public source check age from actual recorder observation age. Corrected explicit-proxy environment handling, browser-import validation/archiving, source-label fallback, CLI feature-flag composition and future/expired observation guards.
 
 Planning checks: 17 Python code fences parsed, 2 JSON examples parsed, 4 TypeScript/TSX fences passed the installed compiler's syntax-only --noCheck/--noEmit check, and all 12 inter-document links resolved. This is example-syntax/document validation, not type checking, runtime tests, live source collection, migration proof or implemented feature evidence. Production tests/build/live checks remain execution gates above. No packages were installed and no product/database behavior changed during planning.
+
+Publication checkpoint 2026-11-03: reviewed implementation commit `06539f7` was pushed to `origin/codex/vpn-evidence-expansion`. Local checks passed (198 backend tests, 81 frontend tests, owned lint, format and build); running-server and bounded browser proof is in the verification document. GitHub Actions was in progress when this note was written; no remote pass is claimed here.
