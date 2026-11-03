@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source_id": "x4b-vpn-v4",
+      "family": "x4b",
+      "enabled": true,
+      "adapter": "cidr_text",
+      "basis": "network_inference",
+      "provider": null,
+      "role": "unknown",
+      "url": "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv4.txt",
+      "max_bytes": 5000000,
+      "max_age_hours": 48,
+      "attribution_url": "https://github.com/X4BNet/lists_vpn"
+    },
+    {
+      "source_id": "vpngate-v4",
+      "family": "vpngate",
+      "enabled": true,
+      "adapter": "vpngate_csv",
+      "basis": "provider_list",
+      "provider": "VPN Gate",
+      "role": "server",
+      "url": "https://www.vpngate.net/api/iphone/",
+      "max_bytes": 25000000,
+      "max_age_hours": 48,
+      "attribution_url": "https://www.vpngate.net/en/"
+    },
+    {
+      "source_id": "urbanvpn-dns-v4",
+      "family": "urbanvpn-reviewed-hostnames",
+      "enabled": true,
+      "adapter": "dns_a",
+      "basis": "provider_dns",
+      "provider": "UrbanVPN",
+      "role": "unknown",
+      "url": "https://www.netify.ai/resources/ips/103.108.230.50",
+      "hosts": [
+        "p-jp1.urban-vpn.com"
+      ],
+      "max_bytes": 5000000,
+      "max_age_hours": 48,
+      "attribution_url": "https://www.urban-vpn.com/"
+    }
+  ]
+}

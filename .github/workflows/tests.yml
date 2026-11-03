@@ -1,0 +1,36 @@
+name: VPNLens checks
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: vpnlens_test
+          POSTGRES_PASSWORD: fixture_only
+          POSTGRES_DB: vpnlens_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vpnlens_test -d vpnlens_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      VPNLENS_TEST_DATABASE_URL: postgresql://vpnlens_test:fixture_only@localhost:5432/vpnlens_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run format:check
+      - run: npm --prefix frontend test
+      - run: npm --prefix frontend run build
+      - run: python -m pip install -r requirements.lock
+      - run: ruff check api vpnlens scripts tests/test_backend_api.py tests/test_refresh_workflow.py tests/test_refresh_schedule.py tests/backend_support.py tests/test_ip2location_auto.py tests/test_evidence_collectors.py tests/test_exit_recorder.py tests/test_evidence_v2_store.py tests/test_evidence_v2_policy.py
+      - run: python scripts/run_tests.py

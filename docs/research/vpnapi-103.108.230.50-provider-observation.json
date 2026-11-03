@@ -1,0 +1,16 @@
+{
+  "observed_on": "2026-11-02",
+  "source_page": "https://vpnapi.io/vpn-detection",
+  "endpoint": "POST /widget-pro",
+  "classification_authority": "external vendor; independently unverified",
+  "rea_evidence_id": "ev_8a7baf9aafdae9eee0fcfdbfa022563cbfd1a52d370d782971e5f58d1192559e",
+  "response_body_sha256": "3c35e839ea5099d3e1997882573573e8c2b2397eb03c6d5225e5c8d8303825bd",
+  "response": {
+    "ip": "103.108.230.50",
+    "vpn": true,
+    "proxy": false,
+    "tor": false,
+    "relay": false,
+    "residential_proxy": true
+  }
+}
