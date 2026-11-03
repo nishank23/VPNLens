@@ -304,19 +304,39 @@ class ExtendedAPITests(DatabaseCase):
         return TestClient(create_app(Settings(database_url=self.dsn, extended_evidence=enabled)))
 
     def test_opt_in_missing_schema_safe_and_flag_off_payload_exact(self):
-        from fastapi.encoders import jsonable_encoder
-
+        from api.models import LookupResponse
         from vpnlens.database import read_connection
         from vpnlens.service import lookup
 
-        with read_connection(Settings(database_url=self.dsn)) as conn:
-            expected = jsonable_encoder(lookup(conn, "192.0.2.129"))
-        off = self.client(False).get("/v1/lookup/192.0.2.129")
-        self.assertEqual(off.json(), expected)
-        self.assertNotIn("proxy_status", off.json()["results"][0]["security"])
-        on = self.client(True).get("/v1/lookup/192.0.2.129")
-        self.assertEqual(on.status_code, 503)
-        self.assertNotIn(self.schema, on.text)
+        original_dsn = self.dsn
+        try:
+            for timezone in ("UTC", "Africa/Maputo"):
+                with self.subTest(timezone=timezone):
+                    self.dsn = make_conninfo(
+                        self.base,
+                        options=f"-c search_path={self.schema},public -c timezone={timezone}",
+                    )
+                    with read_connection(Settings(database_url=self.dsn)) as conn:
+                        raw = lookup(conn, "192.0.2.129")
+                    expected = LookupResponse.model_validate(raw).model_dump(
+                        mode="json", exclude_unset=True
+                    )
+                    off = self.client(False).get("/v1/lookup/192.0.2.129")
+                    self.assertEqual(off.json(), expected)
+                    extension_fields = {
+                        "vpn_assessment",
+                        "proxy_status",
+                        "residential_proxy_status",
+                        "residential_proxy_reason",
+                        "additional_evidence",
+                    }
+                    for row in off.json()["results"]:
+                        self.assertTrue(extension_fields.isdisjoint(row["security"]))
+                    on = self.client(True).get("/v1/lookup/192.0.2.129")
+                    self.assertEqual(on.status_code, 503)
+                    self.assertNotIn(self.schema, on.text)
+        finally:
+            self.dsn = original_dsn
 
     def test_enabled_lookup_ties_readonly_no_upstream_and_committed_sources(self):
         from test_evidence_v2_store import batch, source
