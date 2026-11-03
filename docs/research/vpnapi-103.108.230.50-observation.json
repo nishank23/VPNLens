@@ -1,0 +1,23 @@
+{
+  "observed_on": "2026-11-02",
+  "source": "https://vpnapi.io/",
+  "classification_authority": "external vendor; independently unverified",
+  "rea_evidence_id": "ev_2e9226f55528db5da91367edc17e78de2910139b5110ea19dcb356db9af4fa79",
+  "response": {
+    "ip": "103.108.230.50",
+    "security": {
+      "vpn": true,
+      "proxy": false,
+      "tor": false,
+      "relay": false,
+      "residential_proxy": true,
+      "crawler": false
+    },
+    "network": {
+      "asn": 136557,
+      "name": "Host Universal Pty Ltd",
+      "route": "103.108.230.0/24"
+    },
+    "country_code": "JP"
+  }
+}

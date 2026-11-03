@@ -4,7 +4,6 @@
 # Data
 /data/
 *.csv
-/tests/
 
 # Local Python environment and bytecode
 .venv/
@@ -13,3 +12,9 @@ __pycache__/
 
 # macOS metadata
 .DS_Store
+
+# Frontend dependencies, builds, and local design inspection artifacts
+/frontend/node_modules/
+/frontend/dist/
+/frontend/*.tsbuildinfo
+/.taste-skill/

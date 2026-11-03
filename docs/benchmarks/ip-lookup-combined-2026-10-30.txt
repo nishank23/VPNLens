@@ -1,0 +1,100 @@
+Combined IP lookup execution plans supplied on 2026-10-30
+IPv4: 185.186.206.1
+Source: routeviews-rv2-20261001-1200.pfx2as.gz
+Query reference: sql/ip_lookup.sql, with literal inputs in a scratch copy.
+These are user-supplied PostgreSQL plan lines, transcribed from the JSON output.
+Only observation labels and this metadata were added.
+
+Run 1
+Nested Loop Left Join  (cost=8.73..16.81 rows=1 width=64) (actual time=11.674..11.696 rows=2.00 loops=1)
+  Buffers: shared hit=308
+  ->  Nested Loop Left Join  (cost=0.41..8.45 rows=1 width=12) (actual time=0.793..0.804 rows=1.00 loops=1)
+        Buffers: shared hit=5
+        ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.002..0.002 rows=1.00 loops=1)
+        ->  Index Scan using idx_ip2location_ip_range on ip2location ip2  (cost=0.41..8.43 rows=1 width=12) (actual time=0.786..0.794 rows=1.00 loops=1)
+              Index Cond: (ip_range @> '3116027393'::bigint)
+              Index Searches: 1
+              Buffers: shared hit=5
+  ->  Subquery Scan on a  (cost=8.32..8.35 rows=1 width=20) (actual time=10.586..10.594 rows=2.00 loops=1)
+        Filter: (('185.186.206.1'::inet <<= (a.prefix)::inet) AND (a.specificity_rank = 1))
+        Buffers: shared hit=303
+        ->  WindowAgg  (cost=8.32..8.34 rows=1 width=32) (actual time=10.582..10.588 rows=2.00 loops=1)
+              Window: w1 AS (ORDER BY (masklen((asn_prefix_origins.prefix)::inet)) ROWS UNBOUNDED PRECEDING)
+              Run Condition: (dense_rank() OVER w1 <= 1)
+              Storage: Memory  Maximum Storage: 17kB
+              Buffers: shared hit=303
+              ->  Sort  (cost=8.32..8.32 rows=1 width=24) (actual time=10.552..10.553 rows=2.00 loops=1)
+                    Sort Key: (masklen((asn_prefix_origins.prefix)::inet)) DESC
+                    Sort Method: quicksort  Memory: 25kB
+                    Buffers: shared hit=303
+                    ->  Index Scan using idx_asn_prefix_origins_prefix on asn_prefix_origins  (cost=0.29..8.31 rows=1 width=24) (actual time=9.979..9.998 rows=2.00 loops=1)
+                          Index Cond: ((prefix)::inet >>= '185.186.206.1'::inet)
+                          Filter: (source_file = 'routeviews-rv2-20261001-1200.pfx2as.gz'::text)
+                          Index Searches: 1
+                          Buffers: shared hit=300
+Planning:
+  Buffers: shared hit=216
+Planning Time: 11.764 ms
+Execution Time: 13.280 ms
+
+Run 2
+Nested Loop Left Join  (cost=8.73..16.81 rows=1 width=64) (actual time=8.412..8.421 rows=2.00 loops=1)
+  Buffers: shared hit=308
+  ->  Nested Loop Left Join  (cost=0.41..8.45 rows=1 width=12) (actual time=0.302..0.305 rows=1.00 loops=1)
+        Buffers: shared hit=5
+        ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.004..0.004 rows=1.00 loops=1)
+        ->  Index Scan using idx_ip2location_ip_range on ip2location ip2  (cost=0.41..8.43 rows=1 width=12) (actual time=0.296..0.296 rows=1.00 loops=1)
+              Index Cond: (ip_range @> '3116027393'::bigint)
+              Index Searches: 1
+              Buffers: shared hit=5
+  ->  Subquery Scan on a  (cost=8.32..8.35 rows=1 width=20) (actual time=8.073..8.079 rows=2.00 loops=1)
+        Filter: (('185.186.206.1'::inet <<= (a.prefix)::inet) AND (a.specificity_rank = 1))
+        Buffers: shared hit=303
+        ->  WindowAgg  (cost=8.32..8.34 rows=1 width=32) (actual time=8.072..8.077 rows=2.00 loops=1)
+              Window: w1 AS (ORDER BY (masklen((asn_prefix_origins.prefix)::inet)) ROWS UNBOUNDED PRECEDING)
+              Run Condition: (dense_rank() OVER w1 <= 1)
+              Storage: Memory  Maximum Storage: 17kB
+              Buffers: shared hit=303
+              ->  Sort  (cost=8.32..8.32 rows=1 width=24) (actual time=8.056..8.057 rows=2.00 loops=1)
+                    Sort Key: (masklen((asn_prefix_origins.prefix)::inet)) DESC
+                    Sort Method: quicksort  Memory: 25kB
+                    Buffers: shared hit=303
+                    ->  Index Scan using idx_asn_prefix_origins_prefix on asn_prefix_origins  (cost=0.29..8.31 rows=1 width=24) (actual time=7.651..7.665 rows=2.00 loops=1)
+                          Index Cond: ((prefix)::inet >>= '185.186.206.1'::inet)
+                          Filter: (source_file = 'routeviews-rv2-20261001-1200.pfx2as.gz'::text)
+                          Index Searches: 1
+                          Buffers: shared hit=300
+Planning:
+  Buffers: shared hit=216
+Planning Time: 8.312 ms
+Execution Time: 9.494 ms
+
+Run 3
+Nested Loop Left Join  (cost=8.73..16.81 rows=1 width=64) (actual time=3.741..3.749 rows=2.00 loops=1)
+  Buffers: shared hit=305
+  ->  Nested Loop Left Join  (cost=0.41..8.45 rows=1 width=12) (actual time=0.054..0.056 rows=1.00 loops=1)
+        Buffers: shared hit=5
+        ->  Result  (cost=0.00..0.01 rows=1 width=0) (actual time=0.001..0.001 rows=1.00 loops=1)
+        ->  Index Scan using idx_ip2location_ip_range on ip2location ip2  (cost=0.41..8.43 rows=1 width=12) (actual time=0.051..0.052 rows=1.00 loops=1)
+              Index Cond: (ip_range @> '3116027393'::bigint)
+              Index Searches: 1
+              Buffers: shared hit=5
+  ->  Subquery Scan on a  (cost=8.32..8.35 rows=1 width=20) (actual time=3.684..3.689 rows=2.00 loops=1)
+        Filter: (('185.186.206.1'::inet <<= (a.prefix)::inet) AND (a.specificity_rank = 1))
+        Buffers: shared hit=300
+        ->  WindowAgg  (cost=8.32..8.34 rows=1 width=32) (actual time=3.682..3.687 rows=2.00 loops=1)
+              Window: w1 AS (ORDER BY (masklen((asn_prefix_origins.prefix)::inet)) ROWS UNBOUNDED PRECEDING)
+              Run Condition: (dense_rank() OVER w1 <= 1)
+              Storage: Memory  Maximum Storage: 17kB
+              Buffers: shared hit=300
+              ->  Sort  (cost=8.32..8.32 rows=1 width=24) (actual time=3.671..3.671 rows=2.00 loops=1)
+                    Sort Key: (masklen((asn_prefix_origins.prefix)::inet)) DESC
+                    Sort Method: quicksort  Memory: 25kB
+                    Buffers: shared hit=300
+                    ->  Index Scan using idx_asn_prefix_origins_prefix on asn_prefix_origins  (cost=0.29..8.31 rows=1 width=24) (actual time=3.651..3.663 rows=2.00 loops=1)
+                          Index Cond: ((prefix)::inet >>= '185.186.206.1'::inet)
+                          Filter: (source_file = 'routeviews-rv2-20261001-1200.pfx2as.gz'::text)
+                          Index Searches: 1
+                          Buffers: shared hit=300
+Planning Time: 0.276 ms
+Execution Time: 3.791 ms
