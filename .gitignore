@@ -1,5 +1,7 @@
 # Environment
 .env
+# Short-lived credentials written by GitHub Actions authentication.
+gha-creds-*.json
 
 # Data
 /data/

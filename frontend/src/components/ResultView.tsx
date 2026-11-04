@@ -35,57 +35,59 @@ export function EmptyResult({ loading }: { loading: boolean }) {
   );
 }
 
-export function ResultView({ data }: { data: LookupResponse }) {
+export function ResultView({ data, compact = false }: { data: LookupResponse; compact?: boolean }) {
   const summary = summarize(data);
   const { security, location, groups, owners } = summary;
   return (
     <div className="readable-result" data-result-content>
-      <section className="overview-panel panel" aria-labelledby="overview-title">
-        <div className="section-heading">
-          <h2 id="overview-title">Address overview</h2>
-          <span className="small muted">IPv4</span>
-        </div>
-        <div className="address-line">
-          <span className="address identifier">{data.ip}</span>
-          <span className="country-code" title={countryName(location.country_code)}>
-            {location.country_code || '—'}
-          </span>
-        </div>
-        <p className="finding">{summary.finding}</p>
-        <div className="privacy-results">
-          <div className="privacy-result">
-            <span className="field-label">VPN association</span>
-            <span className={`verdict ${security.vpn_status === 'listed' ? 'is-listed' : ''}`}>
-              <span className="verdict-dot" />
-              {security.vpn_status === 'listed' ? 'Listed' : 'Unknown'}
+      {!compact && (
+        <section className="overview-panel panel" aria-labelledby="overview-title">
+          <div className="section-heading">
+            <h2 id="overview-title">Address overview</h2>
+            <span className="small muted">IPv4</span>
+          </div>
+          <div className="address-line">
+            <span className="address identifier">{data.ip}</span>
+            <span className="country-code" title={countryName(location.country_code)}>
+              {location.country_code || '—'}
             </span>
           </div>
-          <div className="privacy-result">
-            <span className="field-label">Tor exit association</span>
-            <span className={`verdict ${security.tor_status === 'listed' ? 'is-listed' : ''}`}>
-              <span className="verdict-dot" />
-              {security.tor_status === 'listed' ? 'Listed' : 'Unknown'}
+          <p className="finding">{summary.finding}</p>
+          <div className="privacy-results">
+            <div className="privacy-result">
+              <span className="field-label">VPN association</span>
+              <span className={`verdict ${security.vpn_status === 'listed' ? 'is-listed' : ''}`}>
+                <span className="verdict-dot" />
+                {security.vpn_status === 'listed' ? 'Listed' : 'Unknown'}
+              </span>
+            </div>
+            <div className="privacy-result">
+              <span className="field-label">Tor exit association</span>
+              <span className={`verdict ${security.tor_status === 'listed' ? 'is-listed' : ''}`}>
+                <span className="verdict-dot" />
+                {security.tor_status === 'listed' ? 'Listed' : 'Unknown'}
+              </span>
+            </div>
+          </div>
+          <p className="evidence-caveat">
+            <UiIcon name="info" size={15} />
+            Unknown is incomplete evidence, not a non-VPN verdict.
+          </p>
+          <div className="location-row">
+            <span className="field-label">Estimated location</span>
+            <strong>
+              {location.city_name ? `${location.city_name}, ` : ''}
+              {countryName(location.country_code)}
+            </strong>
+          </div>
+          <div className="location-row">
+            <span className="field-label">Recently checked sources</span>
+            <span className="num">
+              {security.recently_checked_source_count} / {security.active_source_count}
             </span>
           </div>
-        </div>
-        <p className="evidence-caveat">
-          <UiIcon name="info" size={15} />
-          Unknown is incomplete evidence, not a non-VPN verdict.
-        </p>
-        <div className="location-row">
-          <span className="field-label">Estimated location</span>
-          <strong>
-            {location.city_name ? `${location.city_name}, ` : ''}
-            {countryName(location.country_code)}
-          </strong>
-        </div>
-        <div className="location-row">
-          <span className="field-label">Recently checked sources</span>
-          <span className="num">
-            {security.recently_checked_source_count} / {security.active_source_count}
-          </span>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section className="routing-panel panel" aria-labelledby="routing-title">
         <div className="section-heading">
@@ -206,6 +208,9 @@ export function ResultView({ data }: { data: LookupResponse }) {
             Stale matches remain visible. They do not establish a current listed status.
           </p>
         )}
+        {compact && security.residential_proxy_status === undefined && (
+          <p className="empty-line">Residential proxy: Unknown.</p>
+        )}
       </section>
 
       <ExtendedEvidence security={security} />
@@ -216,7 +221,11 @@ export function ResultView({ data }: { data: LookupResponse }) {
           <div>
             <span className="trace-dot" />
             <strong>Location</strong>
-            <span>IP2Location LITE</span>
+            <span>
+              {data.selected_sources.geolocation?.provider === 'dbip_city_lite'
+                ? `DB-IP City Lite · ${formatDate(data.selected_sources.geolocation.snapshot_at)}`
+                : 'IP2Location LITE'}
+            </span>
           </div>
           <div>
             <span className="trace-dot" />

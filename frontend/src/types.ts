@@ -74,10 +74,34 @@ export interface Snapshot {
   source_file: string;
   snapshot_at: string;
 }
+export interface GeolocationSnapshot extends Snapshot {
+  provider: 'dbip_city_lite';
+}
 export interface LookupResponse {
   ip: string;
-  selected_sources: { routing: Snapshot; organization: Snapshot };
+  selected_sources: {
+    routing: Snapshot;
+    organization: Snapshot;
+    geolocation?: GeolocationSnapshot;
+  };
   results: LookupRow[];
+}
+export type DecisionReason =
+  | 'recent_vpn_evidence'
+  | 'recent_tor_evidence'
+  | 'recent_proxy_evidence'
+  | 'no_recent_blocking_evidence'
+  | 'insufficient_recent_evidence';
+export interface AccessDecision {
+  policy_id: 'streaming-access-v1';
+  action: 'allow' | 'block';
+  reason_codes: DecisionReason[];
+  scheduled_source_health: 'ready' | 'degraded';
+  evaluated_at: string;
+}
+export interface DecisionResponse {
+  lookup: LookupResponse;
+  decision: AccessDecision;
 }
 export interface FeedStatus {
   source_id: string;
@@ -104,7 +128,12 @@ export interface RefreshRecord {
 }
 export interface SourceResponse {
   security_expected_source_ids?: string[];
-  geolocation: { available: boolean; snapshot_at: string | null };
+  geolocation: {
+    available: boolean;
+    snapshot_at: string | null;
+    provider?: GeolocationSnapshot['provider'];
+    source_file?: string;
+  };
   routing: Snapshot[];
   organization: Snapshot[];
   security: FeedStatus[];

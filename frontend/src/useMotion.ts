@@ -7,15 +7,27 @@ gsap.registerPlugin(ScrollTrigger);
 
 export function useResultFeedback(key: string | undefined) {
   useEffect(() => {
-    if (!key || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const context = gsap.context(() => {
-      gsap.fromTo(
-        '[data-result-content]',
-        { y: 5, opacity: 0.75 },
-        { y: 0, opacity: 1, duration: 0.24, ease: 'power2.out', clearProps: 'transform,opacity' },
-      );
-    });
-    return () => context.revert();
+    if (!key) return;
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let context: ReturnType<typeof gsap.context> | undefined;
+    const update = () => {
+      context?.revert();
+      context = undefined;
+      if (preference.matches) return;
+      context = gsap.context(() => {
+        gsap.fromTo(
+          '[data-result-content]',
+          { y: 3 },
+          { y: 0, duration: 0.2, ease: 'power1.out', clearProps: 'transform' },
+        );
+      });
+    };
+    update();
+    preference.addEventListener('change', update);
+    return () => {
+      preference.removeEventListener('change', update);
+      context?.revert();
+    };
   }, [key]);
 }
 

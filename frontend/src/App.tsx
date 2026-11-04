@@ -1,91 +1,104 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
-import type { Health, LookupResponse, SourceResponse } from './types';
-import { ApiError, loadHealth, loadSources, lookupIP, validIPv4 } from './api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import {
+  ApiError,
+  checkIP,
+  checkVisitorConnection,
+  isLoopbackOrigin,
+  loadSources,
+  validIPv4,
+} from './api';
+import type { DecisionResponse, SourceResponse } from './types';
 import { LensMark, UiIcon } from './icons';
-import { EmptyResult, ResultView } from './components/ResultView';
+import { ConnectionResult } from './components/ConnectionResult';
+import { ResultView } from './components/ResultView';
 import { JsonView } from './components/JsonView';
 import { SourcesView } from './components/SourcesView';
 import { useResultFeedback, useSourceScroll } from './useMotion';
+import './connection.css';
 
-const samples = [
-  { ip: '8.8.8.8', label: 'Google DNS' },
-  { ip: '185.186.206.1', label: 'Multiple origins' },
-  { ip: '192.0.2.1', label: 'Unknown evidence' },
-];
+type Target = { kind: 'connection' } | { kind: 'manual'; ip: string };
+const ownConnection: Target = { kind: 'connection' };
+const localDiscoveryKey = 'vpnlens:ipify-consent';
 
 export default function App() {
   const [view, setView] = useState(location.hash === '#sources' ? 'sources' : 'lookup');
-  const [menu, setMenu] = useState(false);
-  const [input, setInput] = useState('8.8.8.8');
-  const [data, setData] = useState<LookupResponse | null>(null);
-  const [querying, setQuerying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fieldError, setFieldError] = useState(false);
+  const [input, setInput] = useState('');
+  const [data, setData] = useState<DecisionResponse | null>(null);
+  const [endpoint, setEndpoint] = useState('/v1/connection');
+  const [allowIpify, setAllowIpify] = useState(() => {
+    if (!isLoopbackOrigin()) return false;
+    try {
+      return localStorage.getItem(localDiscoveryKey) !== 'disabled';
+    } catch {
+      return true;
+    }
+  });
+  const [querying, setQuerying] = useState(true);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [target, setTarget] = useState<Target>(ownConnection);
   const [latency, setLatency] = useState<number | null>(null);
-  const [isExample, setExample] = useState(true);
+  const [panel, setPanel] = useState<'details' | 'json' | null>(null);
   const [sources, setSources] = useState<SourceResponse | null>(null);
   const [sourceLoading, setSourceLoading] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
-  const [health, setHealth] = useState<Health | null>(null);
-  const [mobilePane, setMobilePane] = useState<'readable' | 'json'>('readable');
+  const inputRef = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
   const sourceRequest = useRef<AbortController | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const requestId = useRef(0);
-  const readableRef = useRef<HTMLDivElement>(null);
-  const [resultHeight, setResultHeight] = useState(580);
-  useLayoutEffect(() => {
-    const element = readableRef.current;
-    if (!element || view !== 'lookup') return;
-    const observer = new ResizeObserver((entries) => {
-      setResultHeight(Math.max(580, Math.ceil(entries[0].contentRect.height)));
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [view]);
-  const performLookup = useCallback(async (ip: string, example = false) => {
-    if (!validIPv4(ip)) {
-      setFieldError(true);
-      inputRef.current?.focus();
-      return;
-    }
-    request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    const id = ++requestId.current;
-    setQuerying(true);
-    setData(null);
-    setError(null);
-    setFieldError(false);
-    setLatency(null);
-    setExample(example);
-    setMobilePane('readable');
-    const started = performance.now();
-    try {
-      const next = await lookupIP(ip.trim(), controller.signal);
-      if (id !== requestId.current || controller.signal.aborted) return;
-      setData(next);
-      setLatency(performance.now() - started);
-      void loadHealth(controller.signal)
-        .then((nextHealth) => {
-          if (id === requestId.current && !controller.signal.aborted) setHealth(nextHealth);
-        })
-        .catch(() => {
-          if (id === requestId.current && !controller.signal.aborted) setHealth(null);
-        });
-    } catch (failure) {
-      if (id !== requestId.current || controller.signal.aborted) return;
-      setHealth(null);
-      setError(
-        failure instanceof ApiError
-          ? failure.message
-          : 'The lookup could not be completed. Try again.',
-      );
-    } finally {
-      if (id === requestId.current && !controller.signal.aborted) setQuerying(false);
-    }
-  }, []);
+  const inputEditId = useRef(0);
+  const focusLookup = useRef(false);
+
+  const performCheck = useCallback(
+    async (nextTarget: Target) => {
+      request.current?.abort();
+      const controller = new AbortController();
+      request.current = controller;
+      const id = ++requestId.current;
+      const editId = inputEditId.current;
+      setTarget(nextTarget);
+      setData(null);
+      setError(null);
+      setQuerying(true);
+      setFieldError(null);
+      setLatency(null);
+      setPanel(null);
+      const started = performance.now();
+      try {
+        const result =
+          nextTarget.kind === 'connection'
+            ? await checkVisitorConnection(controller.signal, allowIpify, (ip) => {
+                if (
+                  !controller.signal.aborted &&
+                  id === requestId.current &&
+                  editId === inputEditId.current
+                ) {
+                  setInput(ip);
+                }
+              })
+            : {
+                data: await checkIP(nextTarget.ip, controller.signal),
+                endpoint: `/v1/access-decision/${nextTarget.ip}`,
+              };
+        if (controller.signal.aborted || id !== requestId.current) return;
+        setData(result.data);
+        setEndpoint(result.endpoint);
+        setLatency(performance.now() - started);
+      } catch (failure) {
+        if (controller.signal.aborted || id !== requestId.current) return;
+        setError(
+          failure instanceof ApiError
+            ? failure
+            : new ApiError('The check could not be completed. Try again.'),
+        );
+      } finally {
+        if (!controller.signal.aborted && id === requestId.current) setQuerying(false);
+      }
+    },
+    [allowIpify],
+  );
+
   const refreshSources = useCallback(async () => {
     sourceRequest.current?.abort();
     const controller = new AbortController();
@@ -97,74 +110,89 @@ export default function App() {
       if (!controller.signal.aborted) setSources(next);
     } catch (failure) {
       if (!controller.signal.aborted)
-        setSourceError(failure instanceof Error ? failure.message : 'Sources are unavailable.');
+        setSourceError(failure instanceof Error ? failure.message : 'Sources unavailable.');
     } finally {
       if (!controller.signal.aborted) setSourceLoading(false);
     }
   }, []);
+
   useEffect(() => {
-    void performLookup('8.8.8.8', true);
-    void refreshSources();
-    const controller = new AbortController();
-    void loadHealth(controller.signal)
-      .then(setHealth)
-      .catch(() => {
-        if (!controller.signal.aborted) setHealth(null);
-      });
+    void performCheck(ownConnection);
     return () => {
+      ++requestId.current;
       request.current?.abort();
-      sourceRequest.current?.abort();
-      controller.abort();
     };
-  }, [performLookup, refreshSources]);
+  }, [performCheck]);
   useEffect(() => {
-    const change = () => {
+    if (view === 'sources') void refreshSources();
+    return () => sourceRequest.current?.abort();
+  }, [view, refreshSources]);
+  useEffect(() => {
+    const navigate = () => {
       setView(location.hash === '#sources' ? 'sources' : 'lookup');
-      setMenu(false);
       window.scrollTo({ top: 0, behavior: 'instant' });
     };
-    window.addEventListener('hashchange', change);
     const key = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
         event.preventDefault();
+        focusLookup.current = true;
+        setView('lookup');
         location.hash = 'lookup';
-        window.setTimeout(() => inputRef.current?.focus(), 0);
+        if (inputRef.current) {
+          inputRef.current.focus();
+          focusLookup.current = false;
+        }
       }
-      if (event.key === 'Escape') setMenu(false);
     };
+    window.addEventListener('hashchange', navigate);
     window.addEventListener('keydown', key);
     return () => {
-      window.removeEventListener('hashchange', change);
+      window.removeEventListener('hashchange', navigate);
       window.removeEventListener('keydown', key);
     };
   }, []);
-  useResultFeedback(view === 'lookup' && data ? `${data.ip}-${latency}` : undefined);
-  useSourceScroll(view === 'sources');
+  useEffect(() => {
+    if (view === 'lookup' && focusLookup.current) {
+      inputRef.current?.focus();
+      focusLookup.current = false;
+    }
+  }, [view]);
+  useResultFeedback(data ? `${data.lookup.ip}-${latency}` : undefined);
+  useSourceScroll(view === 'sources' || panel !== null);
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    void performLookup(input);
+    if (!validIPv4(input)) {
+      request.current?.abort();
+      ++requestId.current;
+      setData(null);
+      setError(null);
+      setQuerying(false);
+      setPanel(null);
+      setFieldError(
+        input.includes(':')
+          ? 'IPv6 is not supported yet.'
+          : 'Enter a valid IPv4 address, such as 8.8.8.8.',
+      );
+      inputRef.current?.focus();
+      return;
+    }
+    void performCheck({ kind: 'manual', ip: input.trim() });
   }
-  function tabKey(event: ReactKeyboardEvent<HTMLButtonElement>) {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const next =
-      event.key === 'Home'
-        ? 'readable'
-        : event.key === 'End'
-          ? 'json'
-          : mobilePane === 'readable'
-            ? 'json'
-            : 'readable';
-    setMobilePane(next);
-    document.getElementById(`${next}-tab`)?.focus();
+  const connectionUnavailable = error?.code === 'public_ipv4_unavailable';
+  const unsupported = error?.code === 'ipv6_not_supported';
+  const offerIpify = !allowIpify && isLoopbackOrigin() && (connectionUnavailable || unsupported);
+
+  function setLocalDiscovery(enabled: boolean) {
+    try {
+      localStorage.setItem(localDiscoveryKey, enabled ? 'enabled' : 'disabled');
+    } catch {
+      // Keep the choice for the current page when storage is unavailable.
+    }
+    setAllowIpify(enabled);
   }
-  function sample(ip: string) {
-    setInput(ip);
-    void performLookup(ip, true);
-  }
-  const activeFeeds = sources?.security.filter((source) => !source.stale).length;
   return (
-    <div className="app-shell" data-app>
+    <div className="app-shell public-demo" data-app>
       <a
         className="skip-link"
         href="#main-content"
@@ -175,260 +203,226 @@ export default function App() {
       >
         Skip to content
       </a>
-      <aside className="site-sidebar" aria-label="Workspace sidebar">
-        <a className="brand" href="#lookup" aria-label="VPNLens lookup">
-          <LensMark />
-          <span>VPNLens</span>
-        </a>
-        <div className="workspace-scope">
-          <span className="scope-dot" />
-          Local workspace
-        </div>
-        <nav aria-label="Main navigation">
-          <a
-            href="#lookup"
-            className={view === 'lookup' ? 'active' : ''}
-            aria-current={view === 'lookup' ? 'page' : undefined}
-          >
-            <UiIcon name="lookup" />
-            <span>IP lookup</span>
-          </a>
-          <a
-            href="#sources"
-            className={view === 'sources' ? 'active' : ''}
-            aria-current={view === 'sources' ? 'page' : undefined}
-          >
-            <UiIcon name="database" />
-            <span>Sources & freshness</span>
-          </a>
-          <a href="/docs" target="_blank" rel="noreferrer">
-            <UiIcon name="document" />
-            <span>API reference</span>
-            <UiIcon name="arrow" size={14} />
-          </a>
-        </nav>
-        <div className="sidebar-bottom">
-          <p className="sidebar-statement">
-            Look closer.
-            <br />
-            Follow the evidence.
-          </p>
-          <div className="sidebar-sources">
-            <span className="small muted">Intelligence layers</span>
-            <span>Geolocation</span>
-            <span>Routing & ownership</span>
-            <span>Public VPN / Tor lists</span>
-          </div>
-          <a href="#sources" className="sidebar-status">
-            <span className="scope-dot" />
-            {activeFeeds !== undefined
-              ? `${activeFeeds} public feeds recently checked`
-              : 'Source status unavailable'}
-          </a>
-          <div className="sidebar-credits">
-            <a
-              href="https://www.figma.com/community/file/1166831539721848736"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Solar icons by 480 Design
-            </a>
-            <span>CC BY 4.0 · IBM Plex type</span>
-          </div>
-        </div>
-      </aside>
-      <div className="workspace-shell">
-        <header className="workspace-header">
-          <a className="mobile-brand brand" href="#lookup">
+      <div className="connection-shell">
+        <header className="product-bar">
+          <a href="#lookup" className="brand" aria-label="VPNLens lookup">
             <LensMark />
             <span>VPNLens</span>
           </a>
-          <div className="breadcrumb">
-            <span>Workspace</span>
-            <span>/</span>
-            <strong>{view === 'sources' ? 'Sources' : 'IP lookup'}</strong>
-          </div>
-          <div className="header-actions">
-            <span
-              className={`api-health ${health && health.status !== 'not_ready' ? 'available' : ''}`}
-            >
-              <span />
-              {health?.status === 'ready'
-                ? 'Local API ready'
-                : health?.status === 'degraded'
-                  ? 'API ready · partial sources'
-                  : querying
-                    ? 'Checking API'
-                    : 'API status unavailable'}
-            </span>
-            <a className="header-docs" href="/docs" target="_blank" rel="noreferrer">
-              API docs <UiIcon name="arrow" size={15} />
-            </a>
-            <button
-              className="mobile-menu icon-button"
-              onClick={() => setMenu(!menu)}
-              aria-label={menu ? 'Close navigation' : 'Open navigation'}
-              aria-expanded={menu}
-              aria-controls="mobile-navigation"
-            >
-              <UiIcon name={menu ? 'close' : 'menu'} size={22} />
-            </button>
-          </div>
+          <span className="product-subtitle">IP intelligence</span>
         </header>
-        {menu && (
-          <nav id="mobile-navigation" className="mobile-navigation" aria-label="Mobile navigation">
-            <a href="#lookup" onClick={() => setMenu(false)}>
-              IP lookup
-            </a>
-            <a href="#sources" onClick={() => setMenu(false)}>
-              Sources & freshness
-            </a>
-            <a href="/docs" target="_blank" rel="noreferrer">
-              API documentation
-            </a>
-          </nav>
-        )}
-        <main className="workspace-sheet" id="main-content" tabIndex={-1}>
+        <main id="main-content" tabIndex={-1}>
           {view === 'sources' ? (
             <SourcesView
               data={sources}
-              error={sourceError}
               loading={sourceLoading}
+              error={sourceError}
               refresh={() => void refreshSources()}
             />
           ) : (
             <>
-              <header className="page-title">
-                <div>
-                  <h1>IP investigation</h1>
-                  <p>One address. The evidence behind it.</p>
+              <h1 className="connection-title">IP check</h1>
+              <form className="connection-search" onSubmit={submit} noValidate>
+                <label htmlFor="ip-input">IPv4 address</label>
+                <div className="connection-search-row">
+                  <input
+                    ref={inputRef}
+                    id="ip-input"
+                    value={input}
+                    onChange={(event) => {
+                      ++inputEditId.current;
+                      setInput(event.target.value);
+                      setFieldError(null);
+                    }}
+                    placeholder="Enter an IP address"
+                    autoComplete="off"
+                    spellCheck={false}
+                    inputMode="decimal"
+                    aria-invalid={!!fieldError}
+                    aria-describedby={fieldError ? 'ip-error' : undefined}
+                  />
+                  <button className="lookup-action" type="submit">
+                    Look up
+                    <UiIcon name="arrow" />
+                  </button>
                 </div>
-                <span className="view-note">IPv4 intelligence</span>
-              </header>
-              <section className="search-section" aria-label="IP address search">
-                <form onSubmit={submit} noValidate>
-                  <label htmlFor="ip-input">IPv4 address</label>
-                  <div className={`search-control ${fieldError ? 'invalid' : ''}`}>
-                    <UiIcon name="lookup" size={21} />
-                    <input
-                      ref={inputRef}
-                      id="ip-input"
-                      value={input}
-                      onChange={(event) => {
-                        setInput(event.target.value);
-                        setFieldError(false);
-                      }}
-                      placeholder="Enter an IPv4 address"
-                      spellCheck={false}
-                      autoComplete="off"
-                      inputMode="decimal"
-                      aria-describedby="ip-help"
-                      aria-invalid={fieldError}
-                    />
-                    <span className="shortcut" aria-hidden="true">
-                      ⌘ K
-                    </span>
-                    <button type="submit" className="primary-button">
-                      {querying ? 'Looking up…' : 'Look up IP'}
-                      <UiIcon name="arrow" size={18} />
-                    </button>
-                  </div>
-                  <div className="search-bottom">
-                    <p id="ip-help" className={fieldError ? 'field-error' : ''}>
-                      {fieldError
-                        ? 'Enter four numbers from 0–255, separated by dots. IPv4 hosts only.'
-                        : 'IPv4 hosts only. Domains, ranges, and IPv6 are not supported.'}
-                    </p>
-                    <div className="sample-links">
-                      <span>Try</span>
-                      {samples.map((item) => (
-                        <button
-                          type="button"
-                          onClick={() => sample(item.ip)}
-                          key={item.ip}
-                          title={item.label}
-                        >
-                          {item.ip}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </form>
-              </section>
-              <div className="result-heading">
-                <div>
-                  <h2>Lookup results</h2>
-                  {isExample && <span className="small muted">Live example</span>}
-                </div>
-                <span className="small muted" aria-live="polite">
-                  {querying
-                    ? 'Querying local datasets…'
-                    : data
-                      ? `Showing ${data.ip}`
-                      : error
-                        ? 'Request failed'
-                        : 'Ready to investigate'}
-                </span>
-              </div>
-              {error && (
-                <div className="error-notice" role="alert">
-                  <UiIcon name="info" />
-                  <div>
-                    <strong>We couldn’t complete this lookup.</strong>
-                    <p>{error}</p>
-                  </div>
-                  <button onClick={() => void performLookup(input)}>Retry</button>
-                </div>
-              )}
-              <div className="mobile-result-tabs" role="tablist" aria-label="Result format">
-                <button
-                  role="tab"
-                  onKeyDown={tabKey}
-                  tabIndex={mobilePane === 'readable' ? 0 : -1}
-                  aria-selected={mobilePane === 'readable'}
-                  onClick={() => setMobilePane('readable')}
-                  id="readable-tab"
-                  aria-controls="readable-pane"
-                >
-                  Readable result
-                </button>
-                <button
-                  role="tab"
-                  onKeyDown={tabKey}
-                  tabIndex={mobilePane === 'json' ? 0 : -1}
-                  aria-selected={mobilePane === 'json'}
-                  onClick={() => setMobilePane('json')}
-                  id="json-tab"
-                  aria-controls="json-pane"
-                >
-                  API JSON
-                </button>
-              </div>
-              <div
-                className={`result-workspace show-${mobilePane}`}
-                style={{ '--result-height': `${resultHeight}px` } as CSSProperties}
+                {fieldError && (
+                  <p className="connection-field-error" id="ip-error" role="alert">
+                    {fieldError}
+                  </p>
+                )}
+              </form>
+              <section
+                className="connection-result"
+                aria-label="Connection result"
+                aria-busy={querying}
               >
-                <div
-                  ref={readableRef}
-                  className="readable-pane"
-                  id="readable-pane"
-                  aria-busy={querying}
-                >
-                  {data ? <ResultView data={data} /> : <EmptyResult loading={querying} />}
+                <div className="connection-result-header">
+                  <p>{target.kind === 'connection' ? 'Your connection' : 'Manual lookup'}</p>
+                  <button
+                    className="recheck-action"
+                    onClick={() => void performCheck(ownConnection)}
+                    disabled={offerIpify}
+                    type="button"
+                  >
+                    <UiIcon name="refresh" />
+                    Recheck
+                  </button>
                 </div>
-                <div className="json-pane" id="json-pane">
-                  <JsonView data={data} loading={querying} latency={latency} />
+                {data ? (
+                  <ConnectionResult data={data} />
+                ) : (
+                  <div className="connection-empty" role={error ? 'alert' : undefined}>
+                    <h2>
+                      {querying
+                        ? 'Checking…'
+                        : offerIpify
+                          ? 'Detect your public IPv4'
+                          : connectionUnavailable
+                            ? 'Your public IPv4 is unavailable here'
+                            : unsupported
+                              ? 'IPv6 is not supported yet.'
+                              : error
+                                ? 'Check unavailable'
+                                : 'Ready to check'}
+                    </h2>
+                    <p>
+                      {querying
+                        ? 'Reading local evidence.'
+                        : offerIpify
+                          ? 'On this local site, your browser will contact ipify, which sees your public IPv4.'
+                          : connectionUnavailable || unsupported
+                            ? 'Enter an IPv4 address above.'
+                            : error?.message || 'Enter an IPv4 address to begin.'}
+                    </p>
+                    {querying ? (
+                      <div className="connection-loading" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                    ) : offerIpify ? (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setLocalDiscovery(true)}
+                      >
+                        Enable automatic detection
+                      </button>
+                    ) : error && !connectionUnavailable && !unsupported ? (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void performCheck(target)}
+                      >
+                        Retry
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+              </section>
+              <div className="connection-disclosures">
+                <div className="disclosure-actions">
+                  {(['details', 'json'] as const).map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      disabled={!data || querying}
+                      aria-expanded={panel === name}
+                      aria-controls={`${name}-panel`}
+                      onClick={() => setPanel(panel === name ? null : name)}
+                    >
+                      {name === 'details' ? 'Details' : 'JSON'}
+                      <UiIcon name="arrow" size={14} />
+                    </button>
+                  ))}
                 </div>
+                {data && (
+                  <time
+                    className="check-time"
+                    dateTime={data.decision.evaluated_at}
+                    title={data.decision.evaluated_at}
+                  >
+                    Checked{' '}
+                    {new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit' }).format(
+                      new Date(data.decision.evaluated_at),
+                    )}
+                  </time>
+                )}
               </div>
-              <footer className="workspace-footer">
-                <span>Public evidence has partial coverage.</span>
-                <a href="#sources">
-                  Understand the sources <UiIcon name="arrow" size={14} />
-                </a>
-              </footer>
+              {data && panel === 'details' && (
+                <section className="connection-details" id="details-panel" aria-label="Details">
+                  <ResultView data={data.lookup} compact />
+                </section>
+              )}
+              {data && panel === 'json' && (
+                <section id="json-panel" aria-label="JSON">
+                  <JsonView
+                    data={data.lookup}
+                    loading={querying}
+                    latency={latency}
+                    endpoint={endpoint}
+                    lookupExcerpt
+                  />
+                </section>
+              )}
+              <span className="sr-only" role="status" aria-live="polite">
+                {querying
+                  ? 'Checking connection'
+                  : data
+                    ? `Check complete for ${data.lookup.ip}`
+                    : ''}
+              </span>
             </>
           )}
         </main>
+        <footer className="connection-footer">
+          {data?.lookup.selected_sources.geolocation?.provider === 'dbip_city_lite' ? (
+            <a href="https://db-ip.com">IP Geolocation by DB-IP</a>
+          ) : (
+            <span>Public evidence. Clearer decisions.</span>
+          )}
+          <nav aria-label="More information">
+            <a href={view === 'sources' ? '#lookup' : '#sources'}>
+              {view === 'sources' ? 'IP check' : 'Sources'}
+            </a>
+            <a href="/docs" target="_blank" rel="noreferrer">
+              API
+            </a>
+            <details>
+              <summary>About</summary>
+              <div className="about-content">
+                <p>
+                  VPNLens checks local public evidence. Coverage is partial; an unknown result does
+                  not establish a non-VPN connection. This demo stays accessible to VPN users.
+                </p>
+                {allowIpify && (
+                  <div>
+                    <p>On localhost, ipify sees your public IPv4 during automatic detection.</p>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setLocalDiscovery(false)}
+                    >
+                      Disable automatic detection
+                    </button>
+                  </div>
+                )}
+                <p>
+                  IBM Plex fonts ·{' '}
+                  <a
+                    href="https://www.figma.com/community/file/1166831539721848736"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Solar icons by 480 Design
+                  </a>{' '}
+                  (CC BY 4.0).
+                </p>
+              </div>
+            </details>
+          </nav>
+        </footer>
       </div>
     </div>
   );

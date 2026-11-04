@@ -1,4 +1,4 @@
-"""Run with: python -m uvicorn api.main:app --host 127.0.0.1 --port 8000."""
+"""Serve with uvicorn's --no-proxy-headers so app proxy trust sees the real peer."""
 
 import logging
 from ipaddress import IPv4Address
@@ -7,7 +7,7 @@ from time import monotonic
 from uuid import uuid4
 
 import psycopg
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,9 +15,11 @@ from fastapi.staticfiles import StaticFiles
 from ingestion.ip_evidence import FEEDS
 from vpnlens.config import ROOT, Settings
 from vpnlens.database import SnapshotNotFound, SourcesUnavailable, read_connection
-from vpnlens.service import lookup, source_status
+from vpnlens.rate_limit import ApiRateLimit
+from vpnlens.service import access_decision, lookup, source_status
+from vpnlens.visitor import VisitorAddressError, client_address, visitor_ipv4
 
-from .models import LookupResponse
+from .models import AccessDecisionResponse, LookupResponse
 
 LOGGER = logging.getLogger("vpnlens.api")
 
@@ -31,12 +33,42 @@ def create_app(settings=None, frontend_dir=None):
         "Unknown evidence never means confirmed non-VPN or non-Tor.",
     )
     app.state.settings = settings
+    if settings.api_requests_per_minute:
+        rate_limit = ApiRateLimit(
+            settings.api_requests_per_minute, settings.api_total_requests_per_minute
+        )
+
+        @app.middleware("http")
+        async def limit_api(request: Request, call_next):
+            path = request.url.path
+            if request.method == "GET" and (path.startswith("/v1/") or path == "/health/ready"):
+                peer = request.client.host if request.client else None
+                try:
+                    address = client_address(
+                        peer,
+                        ",".join(request.headers.getlist("x-forwarded-for")),
+                        settings.trusted_proxy_cidrs,
+                    )
+                    client = str(address)
+                except VisitorAddressError:
+                    # Invalid forwarding chains share one bucket and cannot mint keys.
+                    client = ""
+                retry_after = rate_limit.retry_after(client)
+                if retry_after is not None:
+                    return JSONResponse(
+                        status_code=429,
+                        content={"detail": "rate_limit_exceeded"},
+                        headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"},
+                    )
+            return await call_next(request)
+
     if settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
             allow_methods=["GET"],
             allow_headers=["Accept", "Content-Type"],
+            expose_headers=["Retry-After"],
         )
 
     def connection():
@@ -53,6 +85,10 @@ def create_app(settings=None, frontend_dir=None):
             LOGGER.error("request_failed id=%s type=%s", request_id, type(error).__name__)
             response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
         response.headers["X-Request-ID"] = request_id
+        if request.url.path == "/v1/connection" or request.url.path.startswith(
+            "/v1/access-decision"
+        ):
+            response.headers["Cache-Control"] = "no-store"
         LOGGER.info(
             "request id=%s method=%s status=%s duration_ms=%.2f",
             request_id,
@@ -101,7 +137,11 @@ def create_app(settings=None, frontend_dir=None):
 
     @app.get("/health/ready")
     def ready(conn=Depends(connection)):
-        sources = source_status(conn, extended_enabled=settings.extended_evidence)
+        sources = source_status(
+            conn,
+            extended_enabled=settings.extended_evidence,
+            geolocation_provider=settings.geolocation_provider,
+        )
         if (
             not sources["geolocation"]["available"]
             or not sources["routing"]
@@ -128,10 +168,16 @@ def create_app(settings=None, frontend_dir=None):
 
     @app.get("/v1/sources")
     def sources(conn=Depends(connection)):
-        return source_status(conn, extended_enabled=settings.extended_evidence)
+        return source_status(
+            conn,
+            extended_enabled=settings.extended_evidence,
+            geolocation_provider=settings.geolocation_provider,
+        )
 
     @app.get(
-        "/v1/lookup/{ip_address}", response_model=LookupResponse, response_model_exclude_unset=True
+        "/v1/lookup/{ip_address}",
+        response_model=LookupResponse,
+        response_model_exclude_unset=True,
     )
     def ip_lookup(
         ip_address: IPv4Address,
@@ -146,13 +192,54 @@ def create_app(settings=None, frontend_dir=None):
                 source_file,
                 org_source_file,
                 extended_enabled=settings.extended_evidence,
+                geolocation_provider=settings.geolocation_provider,
+            )
+
+    @app.get(
+        "/v1/access-decision/{ip_address}",
+        response_model=AccessDecisionResponse,
+        response_model_exclude_unset=True,
+    )
+    def ip_access_decision(ip_address: IPv4Address):
+        with read_connection(settings) as conn:
+            return access_decision(
+                conn,
+                str(ip_address),
+                extended_enabled=settings.extended_evidence,
+                geolocation_provider=settings.geolocation_provider,
+            )
+
+    @app.get(
+        "/v1/connection",
+        response_model=AccessDecisionResponse,
+        response_model_exclude_unset=True,
+    )
+    def connection_access_decision(request: Request):
+        try:
+            address = visitor_ipv4(
+                request.client.host if request.client else None,
+                ",".join(request.headers.getlist("x-forwarded-for")),
+                settings.trusted_proxy_cidrs,
+            )
+        except VisitorAddressError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+        with read_connection(settings) as conn:
+            return access_decision(
+                conn,
+                address,
+                extended_enabled=settings.extended_evidence,
+                geolocation_provider=settings.geolocation_provider,
             )
 
     # Serve only the explicit frontend entry/assets. API paths keep their own 404s.
     built = Path(frontend_dir) if frontend_dir is not None else ROOT / "frontend" / "dist"
     if (built / "index.html").is_file():
         if (built / "assets").is_dir():
-            app.mount("/assets", StaticFiles(directory=built / "assets"), name="frontend-assets")
+            app.mount(
+                "/assets",
+                StaticFiles(directory=built / "assets"),
+                name="frontend-assets",
+            )
 
         @app.get("/", include_in_schema=False)
         def frontend_index():

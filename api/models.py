@@ -45,7 +45,12 @@ class Snapshot(BaseModel):
     snapshot_at: datetime
 
 
+class GeolocationSnapshot(Snapshot):
+    provider: Literal["dbip_city_lite"]
+
+
 class SelectedSources(BaseModel):
+    geolocation: GeolocationSnapshot | None = None
     routing: Snapshot
     organization: Snapshot
 
@@ -54,3 +59,24 @@ class LookupResponse(BaseModel):
     ip: IPv4Address
     selected_sources: SelectedSources
     results: list[LookupRow]
+
+
+class AccessDecision(BaseModel):
+    policy_id: Literal["streaming-access-v1"]
+    action: Literal["allow", "block"]
+    reason_codes: list[
+        Literal[
+            "recent_vpn_evidence",
+            "recent_tor_evidence",
+            "recent_proxy_evidence",
+            "no_recent_blocking_evidence",
+            "insufficient_recent_evidence",
+        ]
+    ]
+    scheduled_source_health: Literal["ready", "degraded"]
+    evaluated_at: datetime
+
+
+class AccessDecisionResponse(BaseModel):
+    lookup: LookupResponse
+    decision: AccessDecision

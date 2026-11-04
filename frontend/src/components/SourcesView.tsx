@@ -80,12 +80,24 @@ export function SourcesView({
             </div>
             <div className="dataset-row">
               <div>
-                <strong>IP2Location LITE</strong>
+                <strong>
+                  {data.geolocation.provider === 'dbip_city_lite' ? (
+                    <a href="https://db-ip.com">IP Geolocation by DB-IP</a>
+                  ) : data.geolocation.available ? (
+                    'IP2Location LITE'
+                  ) : (
+                    'Geolocation'
+                  )}
+                </strong>
                 <span>Estimated IP geolocation</span>
               </div>
               <div>
                 <strong>{data.geolocation.available ? 'Available' : 'Unavailable'}</strong>
-                <span>Publisher date unavailable</span>
+                <span>
+                  {data.geolocation.snapshot_at
+                    ? formatDate(data.geolocation.snapshot_at)
+                    : 'Publisher date unavailable'}
+                </span>
               </div>
             </div>
             {data.routing.map((source) => (

@@ -8,13 +8,16 @@ market. Absence is not proof that an address is residential or not using a VPN.
 ## Reviewed source registry
 
 `config/evidence_sources.json` has `schema_version: 1` and a `sources` array. The
-initial registry enables exactly these sources:
+registry enables these sources:
 
 | Source ID | Family | Adapter and basis | Provider / role | Byte cap |
 | --- | --- | --- | --- | --- |
 | `x4b-vpn-v4` | `x4b` | `cidr_text` / `network_inference` | null / unknown | 5,000,000 |
 | `vpngate-v4` | `vpngate` | `vpngate_csv` / `provider_list` | VPN Gate / server | 25,000,000 |
 | `urbanvpn-dns-v4` | `urbanvpn-reviewed-hostnames` | `dns_a` / `provider_dns` | UrbanVPN / unknown | 5,000,000 |
+| `protonvpn-advertised-exits-v4` | `protonvpn-provider-api` | `host_text` / `provider_list` | ProtonVPN / exit | 5,000,000 |
+| `windscribe-server-list-v4` | `windscribe-provider-api` | `host_text` / `provider_list` | Windscribe / server | 5,000,000 |
+| `tunnelbear-server-list-v4` | `tunnelbear-provider-api` | `host_text` / `provider_list` | TunnelBear / server | 5,000,000 |
 
 Every entry requires a unique lowercase `source_id` (at most 100 characters),
 nonempty `family`, boolean `enabled`, reviewed `adapter` and matching `basis`,
@@ -53,6 +56,21 @@ explicit registry review, not automatic enumeration.
   list, a guarantee of current DNS resolution, or permission to infer other
   hostnames. Collection queries only explicit A records and makes no claim to
   enumerate IPv6 addresses or the provider's entire infrastructure.
+
+- [ProtonVPN-IPs](https://github.com/tn3w/ProtonVPN-IPs) supplies exact IPv4
+  exits advertised by the Proton API. The collector uses its host list.
+- [Windscribe-IPs](https://github.com/tn3w/Windscribe-IPs) extracts server
+  addresses from Windscribe's public server catalog, including ping endpoints.
+  These records describe provider infrastructure.
+- [TunnelBear-IPs](https://github.com/tn3w/TunnelBear-IPs) publishes server
+  addresses from the provider API. Its upstream list retains addresses for up
+  to 30 missed checks. A VPNLens download time does not renew upstream evidence
+  about when an address last appeared on a server.
+
+These three lists are maintained by tn3w under Apache-2.0. Keep the linked
+license and attribution with any redistributed list. The ProtonVPN and
+Windscribe feeds can share upstream information with existing provider lists.
+A repeated address does not establish an independent observation.
 
 All sources use a 48-hour check-age policy. `checked_at` records when this
 collector checked a source; it does not claim when the publisher changed its

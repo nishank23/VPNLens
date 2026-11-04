@@ -11,7 +11,8 @@ evidence, not confirmed non-VPN.**
 
 ## Implemented
 
-- IP2Location LITE DB11 range lookup for estimated country and city.
+- Indexed country and city lookup from IP2Location LITE DB11 or DB-IP City Lite.
+  Use [DB-IP City Lite for the public demo](docs/public-demo.md#db-ip-geolocation-for-public-use).
 - CAIDA RouteViews longest-prefix lookup, preserving tied origin groups and
   unmapped ASN members; CAIDA organization records nested under each group.
 - Local public VPN-server and Tor-exit lists with separate association statuses.
@@ -19,8 +20,10 @@ evidence, not confirmed non-VPN.**
   X4B CIDRs clearly separated as weak network inference.
 - Manual exit recording/import with separate review, original observation
   expiry, VPN/proxy separation, and private receipts excluded from public output.
-- FastAPI lookup, sources/freshness, health, OpenAPI, and explicit-snapshot CLI.
-- React/TypeScript interface with readable explanations and exact JSON/copy.
+- FastAPI lookup, streaming-policy decisions, visitor IP, source freshness,
+  health, OpenAPI, and explicit-snapshot CLI.
+- Compact React connection checker with manual search, optional evidence details,
+  and copyable lookup JSON. The result shows IP location and origin groups.
 - Validated refresh, unchanged-content handling, retained history, local-file
   inputs, a macOS refresh scheduler, and PostgreSQL-backed regression tests.
 
@@ -105,7 +108,7 @@ python -m vpnlens.setup
 python -m vpnlens.refresh
 npm --prefix frontend ci
 npm --prefix frontend run build
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers --no-access-log
 ```
 
 Refresh may download public datasets; it requires network access. Initialization
@@ -115,12 +118,22 @@ core datasets for readiness. Open the [local interface](http://127.0.0.1:8000) o
 
 ```bash
 curl http://127.0.0.1:8000/v1/lookup/8.8.8.8
+curl http://127.0.0.1:8000/v1/access-decision/8.8.8.8
 ```
 
 The response retains the requested IP, selected snapshot provenance, tied routing
 results, nested `asn_owners`, and `security`. `/v1/sources` reports loaded source
 records and freshness; `/health/ready` reports availability.
 See [frontend setup](docs/frontend-verification.md#run-the-interface) for dev mode.
+
+The page checks `GET /v1/connection` and fills the search field with the detected
+IPv4. On localhost, automatic detection uses ipify when the backend only sees
+loopback. **About** lets you disable this fallback. Manual search remains available.
+The new decision routes return `{lookup, decision}` and never call an external
+detector. The demo allows unknown connections while preserving uncertainty;
+fresh qualifying evidence can recommend restricting playback. See
+[connection flow, policy and proxy trust](docs/public-demo.md) before hosting.
+[Implementation verification and screenshots](docs/public-demo-verification.md) record local results and limits.
 
 Extended evidence defaults to `VPNLENS_EXTENDED_EVIDENCE=false`. Its explicit
 additive migration is `python -m vpnlens.setup --extended-evidence`; review the

@@ -150,11 +150,19 @@ def collectors():
 
 
 class RegistryIdentityTests(unittest.TestCase):
-    def test_initial_registry_matches_reviewed_sources(self):
+    def test_registry_matches_reviewed_sources(self):
         registry = json.loads((ROOT / "config/evidence_sources.json").read_text())
         entries = collectors().registry_entries(registry)
         self.assertEqual(
-            [e["source_id"] for e in entries], ["x4b-vpn-v4", "vpngate-v4", "urbanvpn-dns-v4"]
+            [e["source_id"] for e in entries],
+            [
+                "x4b-vpn-v4",
+                "vpngate-v4",
+                "urbanvpn-dns-v4",
+                "protonvpn-advertised-exits-v4",
+                "windscribe-server-list-v4",
+                "tunnelbear-server-list-v4",
+            ],
         )
         self.assertEqual(
             entries[0]["url"],
@@ -163,6 +171,8 @@ class RegistryIdentityTests(unittest.TestCase):
         self.assertEqual(entries[1]["url"], "https://www.vpngate.net/api/iphone/")
         self.assertEqual(entries[2]["url"], "https://www.netify.ai/resources/ips/103.108.230.50")
         self.assertEqual(entries[2]["hosts"], ["p-jp1.urban-vpn.com"])
+        self.assertEqual([e["role"] for e in entries[3:]], ["exit", "server", "server"])
+        self.assertTrue(all(e["adapter"] == "host_text" for e in entries[3:]))
 
     def test_entries_keep_disabled_and_return_independent_copies(self):
         registry = registry_fixture()

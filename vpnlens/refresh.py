@@ -30,6 +30,14 @@ from .downloads import (
 )
 from .evidence_collectors import load_candidate, prepare_batch
 from .evidence_store import publish_contract
+from .geolocation import (
+    DBIP_CITY_LITE,
+    IP2LOCATION,
+    dbip_download_url,
+    dbip_ipv4_fields,
+    dbip_release_date,
+    dbip_snapshot,
+)
 from .ip2location_schedule import configured_download_url, download_eligibility
 
 LOGGER = logging.getLogger("vpnlens.refresh")
@@ -158,6 +166,10 @@ def load_routing(path, connection):
 @contextmanager
 def geolocation_csv(path):
     path = Path(path)
+    if path.suffix.lower() == ".gz":
+        with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as source:
+            yield source
+        return
     if path.suffix.lower() != ".zip":
         with path.open("r", encoding="utf-8-sig", newline="") as source:
             yield source
@@ -183,14 +195,20 @@ def geolocation_csv(path):
             yield source
 
 
-def load_geolocation(path, connection):
+def load_geolocation(path, connection, *, provider=IP2LOCATION):
+    path = Path(path)
+    release = dbip_release_date(path.name) if provider == DBIP_CITY_LITE else None
     count = 0
     previous = -1
     connection.execute("TRUNCATE raw_ip2location")
     with geolocation_csv(path) as source, connection.cursor() as cursor:
         with cursor.copy("""COPY raw_ip2location (ip_from,ip_to,country_code,country_name,
             region_name,city_name,latitude,longitude,zip_code,time_zone) FROM STDIN""") as copy:
-            for fields in csv.reader(source):
+            for fields in csv.reader(source, strict=True):
+                if release is not None:
+                    fields = dbip_ipv4_fields(fields)
+                    if fields is None:
+                        continue
                 if len(fields) != 10:
                     raise ValueError("Geolocation row must have 10 fields")
                 start, end = int(fields[0]), int(fields[1])
@@ -215,10 +233,17 @@ def load_geolocation(path, connection):
     stored = connection.execute("SELECT COUNT(*) FROM ip2location").fetchone()[0]
     if count != stored:
         raise ValueError("Geolocation row count mismatch")
-    return {"source_file": Path(path).name, "rows": stored, "snapshot_at": None}
+    record = {"source_file": path.name, "rows": stored, "snapshot_at": None}
+    if release is not None:
+        connection.execute(
+            "INSERT INTO dbip_geolocation_release (source_file,snapshot_at) VALUES (%s,%s)",
+            (path.name, release),
+        )
+        record.update(provider=provider, snapshot_at=release.isoformat())
+    return record
 
 
-def already_loaded(connection, dataset, source_file, expected_rows):
+def already_loaded(connection, dataset, source_file, expected_rows, provider=IP2LOCATION):
     if dataset == "routing":
         row = connection.execute(
             "SELECT COUNT(*) FROM asn_prefix_origins WHERE source_file=%s",
@@ -242,6 +267,12 @@ def already_loaded(connection, dataset, source_file, expected_rows):
             "SELECT EXISTS(SELECT 1 FROM raw_org_mappings WHERE source_file=%s)",
             (source_file,),
         ).fetchone()[0]
+    snapshot = dbip_snapshot(connection)
+    if provider == DBIP_CITY_LITE:
+        if snapshot is None or snapshot["source_file"] != source_file:
+            return False
+    elif snapshot is not None:
+        return False
     return connection.execute("SELECT COUNT(*) FROM raw_ip2location").fetchone()[0] == row
 
 
@@ -257,6 +288,7 @@ def refresh_datasets(
     organization_file=None,
     geolocation_file=None,
     geolocation_url=None,
+    geolocation_provider=IP2LOCATION,
     data_dir=None,
     downloader=download_file,
     force_geolocation_download=False,
@@ -270,6 +302,8 @@ def refresh_datasets(
     def clock():
         return now.astimezone(UTC) if now is not None else datetime.now(UTC)
 
+    if geolocation_provider not in (IP2LOCATION, DBIP_CITY_LITE):
+        raise ValueError("Unsupported geolocation provider")
     if not datasets or any(item not in DATASETS for item in datasets):
         raise ValueError("Unsupported dataset selection")
     effective = []
@@ -287,7 +321,8 @@ def refresh_datasets(
         status_path = state_path(lock, data_dir)
         for dataset in effective:
             LOGGER.info("Checking dataset=%s", dataset)
-            checked = clock().isoformat()
+            checked_at = clock()
+            checked = checked_at.isoformat()
             previous = state.get(dataset, {})
             try:
                 if dataset == "evidence_extended":
@@ -309,16 +344,21 @@ def refresh_datasets(
                         "organization": organization_file,
                         "geolocation": geolocation_file,
                     }[dataset]
-                    remote_geo = (
-                        dataset == "geolocation" and local is None and bool(geolocation_url)
-                    )
+                    url = geolocation_url
+                    if dataset == "geolocation" and geolocation_provider == DBIP_CITY_LITE:
+                        url = dbip_download_url(checked_at)
+                    remote_geo = dataset == "geolocation" and local is None and bool(url)
                     manual = dataset == "geolocation" and not remote_geo
                     if remote_geo:
                         available = already_loaded(
-                            lock, dataset, previous.get("source_file"), previous.get("rows")
+                            lock,
+                            dataset,
+                            previous.get("source_file"),
+                            previous.get("rows"),
+                            geolocation_provider,
                         )
                         due, next_date = download_eligibility(
-                            previous, clock(), identity, available
+                            previous, checked_at, identity, available
                         )
                         if not due and not force_geolocation_download:
                             record = {
@@ -337,7 +377,7 @@ def refresh_datasets(
                             )
                             continue
                     if local is None:
-                        if dataset == "geolocation" and not geolocation_url:
+                        if dataset == "geolocation" and not url:
                             record = {
                                 **previous,
                                 "status": "manual_update_required",
@@ -351,17 +391,14 @@ def refresh_datasets(
                                 "Geolocation requires a local file or authorized download URL"
                             )
                             continue
-                        url = (
-                            geolocation_url
-                            if dataset == "geolocation"
-                            else (
+                        if dataset != "geolocation":
+                            url = (
                                 discover_routing()
                                 if dataset == "routing"
                                 else discover_organization()
                             )
-                        )
                         name = Path(urlsplit(url).path).name
-                        if dataset == "geolocation":
+                        if dataset == "geolocation" and geolocation_provider == IP2LOCATION:
                             # Do not persist credentialed URL paths or query strings.
                             name = "ip2location.zip"
                         local = downloader(url, data_dir / "downloads" / dataset / name)
@@ -370,7 +407,9 @@ def refresh_datasets(
                     if (
                         previous.get("sha256") == content_hash
                         and previous.get("source_file") == path.name
-                        and already_loaded(lock, dataset, path.name, previous.get("rows"))
+                        and already_loaded(
+                            lock, dataset, path.name, previous.get("rows"), geolocation_provider
+                        )
                     ):
                         record = {
                             **previous,
@@ -386,7 +425,9 @@ def refresh_datasets(
                                 loaded = ingest_asn_organizations(path, connection=connection)
                                 loaded["rows"] = loaded["asn_rows"]
                             else:
-                                loaded = load_geolocation(path, connection)
+                                loaded = load_geolocation(
+                                    path, connection, provider=geolocation_provider
+                                )
                             if digest_file(path) != content_hash:
                                 raise ValueError("Source file changed during ingestion")
                         record = {
@@ -398,7 +439,7 @@ def refresh_datasets(
                         }
                 if dataset == "geolocation":
                     if remote_geo:
-                        record["download_month"] = clock().strftime("%Y-%m")
+                        record["download_month"] = checked_at.strftime("%Y-%m")
                         record["downloaded_at"] = clock().isoformat()
                         record["next_download_on"] = next_date.isoformat()
                     else:
@@ -434,7 +475,7 @@ def main():
     parser.add_argument("--routing-file")
     parser.add_argument("--organization-file")
     parser.add_argument(
-        "--geolocation-file", help="Authorized local IP2Location DB11 IPv4 CSV or ZIP"
+        "--geolocation-file", help="Local file for the configured geolocation provider"
     )
     parser.add_argument(
         "--force-geolocation-download",
@@ -446,12 +487,13 @@ def main():
     settings = Settings.from_env()
     if not settings.database_url:
         parser.error("DATABASE_URL is required")
-    geo = args.geolocation_file or os.getenv("IP2LOCATION_CSV")
+    legacy = settings.geolocation_provider == IP2LOCATION
+    geo = args.geolocation_file or (os.getenv("IP2LOCATION_CSV") if legacy else None)
     if geo and not Path(geo).is_absolute():
         geo = str(ROOT / geo)
     # A configured download URL takes priority over the fallback local file.
-    url = configured_download_url()
-    if args.force_geolocation_download and not url:
+    url = configured_download_url() if legacy else None
+    if args.force_geolocation_download and legacy and not url:
         parser.error("Configure IP2LOCATION_DOWNLOAD_TOKEN or IP2LOCATION_DOWNLOAD_URL first")
     if url and not args.geolocation_file:
         geo = None
@@ -463,6 +505,7 @@ def main():
             organization_file=args.organization_file,
             geolocation_file=geo,
             geolocation_url=url,
+            geolocation_provider=settings.geolocation_provider,
             force_geolocation_download=args.force_geolocation_download,
             extended_enabled=settings.extended_evidence,
         )

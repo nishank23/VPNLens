@@ -24,6 +24,9 @@ GEO = dict(
 EXPECTED = {
     "raw_ip2location": GEO,
     "ip2location": {**GEO, "ip_range": "int8range"},
+    "dbip_geolocation_release": dict(
+        singleton="bool", source_file="text", snapshot_at="timestamptz"
+    ),
     "raw_asn_prefixes": dict(
         prefix_address="text",
         prefix_length="int4",
@@ -76,6 +79,7 @@ EXPECTED = {
     "ip_evidence": dict(snapshot_id="uuid", ip="inet"),
 }
 UNIQUE = {
+    "dbip_geolocation_release": ("singleton",),
     "asn_prefix_origins": ("source_file", "prefix", "origin_group"),
     "raw_asn_mappings": ("source_file", "aut"),
     "raw_org_mappings": ("source_file", "org_id"),

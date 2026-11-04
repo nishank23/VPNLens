@@ -1,11 +1,13 @@
-import type { Health, LookupResponse, SourceResponse } from './types';
+import type { DecisionResponse, Health, LookupResponse, SourceResponse } from './types';
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status = 0) {
+  code?: string;
+  constructor(message: string, status = 0, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -140,7 +142,7 @@ export function isLookupResponse(value: unknown): value is LookupResponse {
   );
 }
 
-async function getJson(path: string, external?: AbortSignal): Promise<unknown> {
+async function getJson(path: string, external?: AbortSignal, connection = false): Promise<unknown> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort('timeout'), 15000);
   const cancel = () => controller.abort();
@@ -153,6 +155,16 @@ async function getJson(path: string, external?: AbortSignal): Promise<unknown> {
       cache: 'no-store',
     });
     if (!response.ok) {
+      if (connection && response.status === 409)
+        throw new ApiError('Your public IPv4 is unavailable here', 409, 'public_ipv4_unavailable');
+      if (connection && response.status === 422)
+        throw new ApiError('IPv6 is not supported yet.', 422, 'ipv6_not_supported');
+      if (response.status === 429) {
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        const wait =
+          Number.isInteger(retryAfter) && retryAfter > 0 ? ` in ${retryAfter}s` : ' shortly';
+        throw new ApiError(`Too many requests. Try again${wait}.`, 429, 'rate_limit_exceeded');
+      }
       if (response.status === 503)
         throw new ApiError('The local API is temporarily unavailable. Try again shortly.', 503);
       if (response.status === 422) throw new ApiError('Enter a valid IPv4 host address.', 422);
@@ -175,6 +187,115 @@ async function getJson(path: string, external?: AbortSignal): Promise<unknown> {
     window.clearTimeout(timer);
     external?.removeEventListener('abort', cancel);
   }
+}
+
+export function isDecisionResponse(value: unknown): value is DecisionResponse {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as Record<string, unknown>;
+  if (!isLookupResponse(data.lookup) || !data.decision || typeof data.decision !== 'object')
+    return false;
+  const decision = data.decision as Record<string, unknown>;
+  if (
+    decision.policy_id !== 'streaming-access-v1' ||
+    !['ready', 'degraded'].includes(decision.scheduled_source_health as string) ||
+    typeof decision.evaluated_at !== 'string' ||
+    !/(Z|[+-]\d{2}:\d{2})$/.test(decision.evaluated_at) ||
+    !Number.isFinite(Date.parse(decision.evaluated_at)) ||
+    !Array.isArray(decision.reason_codes) ||
+    !decision.reason_codes.length
+  )
+    return false;
+  const reasons = decision.reason_codes;
+  if (new Set(reasons).size !== reasons.length) return false;
+  if (decision.action === 'allow')
+    return (
+      reasons.length === 1 &&
+      reasons[0] ===
+        (decision.scheduled_source_health === 'ready'
+          ? 'no_recent_blocking_evidence'
+          : 'insufficient_recent_evidence')
+    );
+  if (decision.action !== 'block') return false;
+  const security = data.lookup.results[0].security;
+  const supported = [
+    ...(security.vpn_status === 'listed' ? ['recent_vpn_evidence'] : []),
+    ...(security.tor_status === 'listed' ? ['recent_tor_evidence'] : []),
+    ...(security.proxy_status === 'listed' ? ['recent_proxy_evidence'] : []),
+  ];
+  return reasons.every((reason) => supported.includes(reason));
+}
+
+export async function checkConnection(signal?: AbortSignal): Promise<DecisionResponse> {
+  const data = await getJson('/v1/connection', signal, true);
+  if (!isDecisionResponse(data))
+    throw new ApiError('The API returned an unexpected result. Try again.', 502);
+  return data;
+}
+
+export async function checkIP(ip: string, signal?: AbortSignal): Promise<DecisionResponse> {
+  if (!validIPv4(ip)) throw new ApiError('Enter a valid IPv4 address, such as 8.8.8.8.', 422);
+  const data = await getJson(`/v1/access-decision/${encodeURIComponent(ip.trim())}`, signal);
+  if (!isDecisionResponse(data) || data.lookup.ip !== ip.trim())
+    throw new ApiError('The API returned an unexpected result. Try again.', 502);
+  return data;
+}
+
+export function isLoopbackOrigin(): boolean {
+  return ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+}
+
+export async function checkVisitorConnection(
+  signal: AbortSignal,
+  allowIpify: boolean,
+  onAddress: (ip: string) => void,
+): Promise<{ data: DecisionResponse; endpoint: string }> {
+  try {
+    const data = await checkConnection(signal);
+    onAddress(data.lookup.ip);
+    return { data, endpoint: '/v1/connection' };
+  } catch (error) {
+    if (
+      !allowIpify ||
+      !isLoopbackOrigin() ||
+      !(error instanceof ApiError) ||
+      (error.code !== 'public_ipv4_unavailable' && error.code !== 'ipv6_not_supported')
+    ) {
+      throw error;
+    }
+  }
+
+  signal.throwIfAborted();
+  let ip: string;
+  try {
+    const response = await fetch('https://api.ipify.org?format=json', {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+      redirect: 'error',
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('IPv4 discovery failed');
+    const address: unknown = await response.json();
+    if (
+      !address ||
+      typeof address !== 'object' ||
+      !('ip' in address) ||
+      typeof address.ip !== 'string' ||
+      !validIPv4(address.ip)
+    ) {
+      throw new Error('Invalid IPv4 discovery response');
+    }
+    ip = address.ip.trim();
+  } catch {
+    signal.throwIfAborted();
+    throw new ApiError('Could not detect your public IPv4. Retry or enter it above.');
+  }
+  signal.throwIfAborted();
+  onAddress(ip);
+  return {
+    data: await checkIP(ip, signal),
+    endpoint: `/v1/access-decision/${ip}`,
+  };
 }
 
 export async function lookupIP(ip: string, signal?: AbortSignal): Promise<LookupResponse> {

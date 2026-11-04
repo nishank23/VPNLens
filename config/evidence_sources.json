@@ -42,6 +42,45 @@
       "max_bytes": 5000000,
       "max_age_hours": 48,
       "attribution_url": "https://www.urban-vpn.com/"
+    },
+    {
+      "source_id": "protonvpn-advertised-exits-v4",
+      "family": "protonvpn-provider-api",
+      "enabled": true,
+      "adapter": "host_text",
+      "basis": "provider_list",
+      "provider": "ProtonVPN",
+      "role": "exit",
+      "url": "https://raw.githubusercontent.com/tn3w/ProtonVPN-IPs/master/protonvpn_ips.txt",
+      "max_bytes": 5000000,
+      "max_age_hours": 48,
+      "attribution_url": "https://github.com/tn3w/ProtonVPN-IPs"
+    },
+    {
+      "source_id": "windscribe-server-list-v4",
+      "family": "windscribe-provider-api",
+      "enabled": true,
+      "adapter": "host_text",
+      "basis": "provider_list",
+      "provider": "Windscribe",
+      "role": "server",
+      "url": "https://raw.githubusercontent.com/tn3w/Windscribe-IPs/master/windscribe_ips.txt",
+      "max_bytes": 5000000,
+      "max_age_hours": 48,
+      "attribution_url": "https://github.com/tn3w/Windscribe-IPs"
+    },
+    {
+      "source_id": "tunnelbear-server-list-v4",
+      "family": "tunnelbear-provider-api",
+      "enabled": true,
+      "adapter": "host_text",
+      "basis": "provider_list",
+      "provider": "TunnelBear",
+      "role": "server",
+      "url": "https://raw.githubusercontent.com/tn3w/TunnelBear-IPs/master/tunnelbear_ips.txt",
+      "max_bytes": 5000000,
+      "max_age_hours": 48,
+      "attribution_url": "https://github.com/tn3w/TunnelBear-IPs"
     }
   ]
 }

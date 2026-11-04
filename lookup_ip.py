@@ -10,7 +10,8 @@ import psycopg
 from ingestion.ip_evidence import lookup_evidence
 from vpnlens.config import Settings
 from vpnlens.database import SourcesUnavailable, read_connection
-from vpnlens.service import enrich_security
+from vpnlens.geolocation import DBIP_CITY_LITE
+from vpnlens.service import enrich_security, geolocation_status
 
 ROOT = Path(__file__).resolve().parent
 
@@ -27,6 +28,11 @@ def lookup_ip(ip_address, source_file, org_source_file):
     }
 
     with read_connection(settings) as conn:
+        if (
+            settings.geolocation_provider == DBIP_CITY_LITE
+            and not geolocation_status(conn, settings.geolocation_provider)["available"]
+        ):
+            raise SourcesUnavailable("DB-IP geolocation release is not loaded")
         with conn.cursor() as cur:
             cur.execute(lookup_sql, parameters)
             rows = cur.fetchall()

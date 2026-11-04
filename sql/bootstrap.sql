@@ -49,6 +49,13 @@ CREATE INDEX IF NOT EXISTS idx_ip2location_ip_range
 ON ip2location
 USING GIST (ip_range);
 
+-- Publish the DB-IP release in the same transaction as its ranges.
+CREATE TABLE IF NOT EXISTS dbip_geolocation_release (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    source_file TEXT NOT NULL,
+    snapshot_at TIMESTAMPTZ NOT NULL
+);
+
 -- DROP TABLE IF EXISTS raw_asn_prefixes;
 CREATE TABLE IF NOT EXISTS raw_asn_prefixes(
     prefix_address TEXT NOT NULL,

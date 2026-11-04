@@ -111,4 +111,14 @@ describe('motion is optional and cleaned up', () => {
     unmount();
     expect(motion.revert).toHaveBeenCalledTimes(1);
   });
+  it('clears result feedback immediately when reduced motion is enabled', () => {
+    renderHook(() => useResultFeedback('8.8.8.8'));
+    const change = media.addEventListener.mock.calls[0][1];
+    act(() => {
+      media.matches = true;
+      change();
+    });
+    expect(motion.revert).toHaveBeenCalledTimes(1);
+    expect(motion.fromTo).toHaveBeenCalledTimes(1);
+  });
 });

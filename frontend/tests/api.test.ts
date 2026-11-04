@@ -60,6 +60,21 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe('API quota', () => {
+  it.each([
+    ['17', 'Too many requests. Try again in 17s.'],
+    [null, 'Too many requests. Try again shortly.'],
+  ])('handles Retry-After %s on HTTP 429', async (retryAfter, message) => {
+    const headers = retryAfter ? { 'Retry-After': retryAfter } : undefined;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 429, headers })));
+    await expect(lookupIP('8.8.8.8')).rejects.toMatchObject({
+      status: 429,
+      code: 'rate_limit_exceeded',
+      message,
+    });
+  });
+});
+
 describe('IPv4 input', () => {
   it.each(['0.0.0.0', '255.255.255.255', '8.8.8.8', ' 192.0.2.1 '])('accepts %s', (value) =>
     expect(validIPv4(value)).toBe(true),

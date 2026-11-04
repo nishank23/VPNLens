@@ -3,13 +3,15 @@
 from datetime import timedelta
 from ipaddress import IPv4Address
 
-from ingestion.ip_evidence import lookup_evidence
+from ingestion.ip_evidence import FEEDS, lookup_evidence
 
+from .access_policy import decide_access
 from .config import ROOT
 from .database import SnapshotNotFound, SourcesUnavailable
 from .evidence_contract import instant
 from .evidence_policy import apply_policy
 from .evidence_store import EvidenceStore
+from .geolocation import DBIP_CITY_LITE, dbip_snapshot
 from .refresh import read_state
 
 LOOKUP_SQL = (ROOT / "sql/ip_lookup.sql").read_text()
@@ -42,9 +44,10 @@ def extended_sources(connection, now):
     return sources, sorted(enabled)
 
 
-def enrich_security(connection, ip, legacy):
+def enrich_security(connection, ip, legacy, now=None):
     """Read local committed evidence once; never contact an upstream source."""
-    now = connection.execute("SELECT CURRENT_TIMESTAMP AS now").fetchone()["now"]
+    if now is None:
+        now = connection.execute("SELECT CURRENT_TIMESTAMP AS now").fetchone()["now"]
     sources, enabled = extended_sources(connection, now)
     matches = EvidenceStore(connection).run("lookup", {"ip_address": ip})["matches"]
     matches = [
@@ -55,13 +58,38 @@ def enrich_security(connection, ip, legacy):
     return apply_policy(
         legacy,
         matches,
-        {"active": len(sources), "recent": sum(not source["stale"] for source in sources)},
+        {
+            "active": len(sources),
+            "recent": sum(not source["stale"] for source in sources),
+        },
         now,
     )
 
 
-def lookup(connection, address, source_file=None, org_source_file=None, *, extended_enabled=False):
+def geolocation_status(connection, provider=None):
+    available = connection.execute(
+        "SELECT EXISTS(SELECT 1 FROM ip2location) AS available"
+    ).fetchone()["available"]
+    snapshot = dbip_snapshot(connection) if available else None
+    if provider == DBIP_CITY_LITE and snapshot is None:
+        available = False
+    return {"available": available, "snapshot_at": None, **(snapshot or {})}
+
+
+def lookup(
+    connection,
+    address,
+    source_file=None,
+    org_source_file=None,
+    *,
+    extended_enabled=False,
+    now=None,
+    geolocation_provider=None,
+):
     ip = str(IPv4Address(address))
+    geo = geolocation_status(connection, geolocation_provider)
+    if geolocation_provider == DBIP_CITY_LITE and not geo["available"]:
+        raise SourcesUnavailable("DB-IP geolocation release is not loaded")
     routing = select_snapshot(connection, "asn_prefix_origins", source_file)
     organization = select_snapshot(connection, "raw_asn_mappings", org_source_file)
     rows = connection.execute(
@@ -74,18 +102,23 @@ def lookup(connection, address, source_file=None, org_source_file=None, *, exten
     ).fetchall()
     security = lookup_evidence(connection, ip)
     if extended_enabled:
-        security = enrich_security(connection, ip, security)
+        security = enrich_security(connection, ip, security, now)
     for row in rows:
         row["security"] = security
     rows.sort(key=lambda row: (str(row["prefix"] or ""), row["origin_group"] or ""))
+    selected = {"routing": routing, "organization": organization}
+    if "provider" in geo:
+        selected["geolocation"] = {
+            key: geo[key] for key in ("provider", "source_file", "snapshot_at")
+        }
     return {
         "ip": ip,
-        "selected_sources": {"routing": routing, "organization": organization},
+        "selected_sources": selected,
         "results": rows,
     }
 
 
-def source_status(connection, *, extended_enabled=False):
+def source_status(connection, *, extended_enabled=False, now=None, geolocation_provider=None):
     routing = connection.execute(
         "SELECT source_file,MAX(snapshot_at) AS snapshot_at "
         "FROM asn_prefix_origins GROUP BY source_file ORDER BY snapshot_at DESC,source_file DESC"
@@ -94,15 +127,13 @@ def source_status(connection, *, extended_enabled=False):
         "SELECT source_file,MAX(snapshot_at) AS snapshot_at "
         "FROM raw_asn_mappings GROUP BY source_file ORDER BY snapshot_at DESC,source_file DESC"
     ).fetchall()
-    geo = connection.execute("SELECT EXISTS(SELECT 1 FROM ip2location) AS available").fetchone()[
-        "available"
-    ]
+    geo = geolocation_status(connection, geolocation_provider)
     evidence = connection.execute("""SELECT source_id,indicator_type,provider,source_url,
         checked_at,fetched_at,ipv4_count,ipv6_skipped,
         checked_at < CURRENT_TIMESTAMP - INTERVAL '48 hours' AS stale
         FROM ip_evidence_snapshots WHERE active ORDER BY source_id""").fetchall()
     result = {
-        "geolocation": {"available": geo, "snapshot_at": None},
+        "geolocation": geo,
         "routing": routing,
         "organization": organization,
         "security": evidence,
@@ -111,8 +142,37 @@ def source_status(connection, *, extended_enabled=False):
     }
 
     if extended_enabled:
-        now = connection.execute("SELECT CURRENT_TIMESTAMP AS now").fetchone()["now"]
+        if now is None:
+            now = connection.execute("SELECT CURRENT_TIMESTAMP AS now").fetchone()["now"]
         extended, enabled = extended_sources(connection, now)
         result["security"].extend(extended)
         result["security_expected_source_ids"] = enabled
     return result
+
+
+def access_decision(connection, address, *, extended_enabled=False, geolocation_provider=None):
+    """Read the lookup, scheduled-source health and clock from one transaction."""
+    now = connection.execute("SELECT CURRENT_TIMESTAMP AS now").fetchone()["now"]
+    result = lookup(
+        connection,
+        address,
+        extended_enabled=extended_enabled,
+        now=now,
+        geolocation_provider=geolocation_provider,
+    )
+    sources = source_status(connection, extended_enabled=extended_enabled, now=now)
+    if not sources["geolocation"]["available"]:
+        raise SourcesUnavailable("Required geolocation dataset is not loaded")
+    expected = {feed.source_id for feed in FEEDS} | set(
+        sources.get("security_expected_source_ids", [])
+    )
+    recent = set()
+    for source in sources["security"]:
+        checked = source["checked_at"]
+        checked = instant(checked) if isinstance(checked, str) else checked
+        if not source["stale"] and checked <= now:
+            recent.add(source["source_id"])
+    return {
+        "lookup": result,
+        "decision": decide_access(result["results"][0]["security"], expected, recent, now),
+    }

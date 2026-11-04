@@ -32,10 +32,14 @@ export function JsonView({
   data,
   loading,
   latency,
+  endpoint,
+  lookupExcerpt = false,
 }: {
   data: LookupResponse | null;
   loading: boolean;
   latency: number | null;
+  endpoint?: string;
+  lookupExcerpt?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
@@ -46,6 +50,7 @@ export function JsonView({
     return () => window.clearTimeout(copyTimer.current);
   }, [data]);
   const text = data ? JSON.stringify(data, null, 2) : '';
+  const ip = data?.ip;
   async function copy() {
     try {
       await navigator.clipboard.writeText(text);
@@ -61,7 +66,7 @@ export function JsonView({
     <section className="json-panel panel" aria-labelledby="json-title">
       <div className="json-heading">
         <div className="section-heading">
-          <h2 id="json-title">API response</h2>
+          <h2 id="json-title">{lookupExcerpt ? 'Lookup data' : 'API response'}</h2>
           <span className="status-tag neutral">JSON</span>
         </div>
         <button
@@ -76,7 +81,7 @@ export function JsonView({
       </div>
       <div className="request-line">
         <span className="request-method">GET</span>
-        <code>/v1/lookup/{data?.ip || '{ip_address}'}</code>
+        <code>{endpoint ?? `/v1/lookup/${ip || '{ip_address}'}`}</code>
       </div>
       <div className="response-meta">
         <span>
@@ -99,7 +104,7 @@ export function JsonView({
         <pre
           className="json-code"
           tabIndex={0}
-          aria-label={`Exact API response for ${data.ip}`}
+          aria-label={lookupExcerpt ? `Lookup JSON for ${ip}` : `Exact API response for ${ip}`}
           data-lenis-prevent
         >
           <code>
@@ -115,7 +120,7 @@ export function JsonView({
       )}
       <div className="json-foot">
         <UiIcon name="code" size={16} />
-        <span>Exact response. No invented fields.</span>
+        <span>{lookupExcerpt ? 'Lookup data returned by the API.' : 'Exact response.'}</span>
         <span role="status" aria-live="polite">
           {copyError
             ? 'Copy unavailable. Select the JSON to copy it.'

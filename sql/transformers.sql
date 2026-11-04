@@ -1,5 +1,16 @@
 -- BEGIN;
 TRUNCATE Table ip2location;
+
+-- A plain transform clears the old release marker. The DB-IP loader sets
+-- its new marker after validating the transformed row count.
+DO $$
+BEGIN
+    IF to_regclass('dbip_geolocation_release') IS NOT NULL THEN
+        DELETE FROM dbip_geolocation_release;
+    END IF;
+END;
+$$;
+
 INSERT INTO ip2location(
 	ip_from,
 	ip_to,
