@@ -103,7 +103,11 @@ export function SourcesView({
             {data.routing.map((source) => (
               <div className="dataset-row" key={source.source_file}>
                 <div>
-                  <strong>CAIDA RouteViews</strong>
+                  <strong>
+                    <a href="https://catalog.caida.org/dataset/routeviews_prefix2as">
+                      The CAIDA UCSD RouteViews Prefix to AS Mappings Dataset
+                    </a>
+                  </strong>
                   <code>{source.source_file}</code>
                 </div>
                 <div>
@@ -115,7 +119,11 @@ export function SourcesView({
             {data.organization.map((source) => (
               <div className="dataset-row" key={source.source_file}>
                 <div>
-                  <strong>CAIDA AS Organizations</strong>
+                  <strong>
+                    <a href="https://catalog.caida.org/dataset/as_organizations">
+                      The CAIDA UCSD AS to Organization Mapping Dataset
+                    </a>
+                  </strong>
                   <code>{source.source_file}</code>
                 </div>
                 <div>
