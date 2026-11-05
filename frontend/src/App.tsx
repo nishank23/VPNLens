@@ -11,11 +11,14 @@ import {
 import type { DecisionResponse, SourceResponse } from './types';
 import { LensMark, UiIcon } from './icons';
 import { ConnectionResult } from './components/ConnectionResult';
+import { ConnectionComparison, type ConnectionSnapshot } from './components/ConnectionComparison';
+import { InspectionHero } from './components/InspectionHero';
 import { ResultView } from './components/ResultView';
 import { JsonView } from './components/JsonView';
 import { SourcesView } from './components/SourcesView';
-import { useResultFeedback, useSourceScroll } from './useMotion';
+import { useLookupIntro, useResultFeedback, useSourceScroll } from './useMotion';
 import './connection.css';
+import './inspection.css';
 
 type Target = { kind: 'connection' } | { kind: 'manual'; ip: string };
 const ownConnection: Target = { kind: 'connection' };
@@ -25,6 +28,7 @@ export default function App() {
   const [view, setView] = useState(location.hash === '#sources' ? 'sources' : 'lookup');
   const [input, setInput] = useState('');
   const [data, setData] = useState<DecisionResponse | null>(null);
+  const [baseline, setBaseline] = useState<ConnectionSnapshot | null>(null);
   const [endpoint, setEndpoint] = useState('/v1/connection');
   const [allowIpify, setAllowIpify] = useState(() => {
     if (!isLoopbackOrigin()) return false;
@@ -157,6 +161,7 @@ export default function App() {
       focusLookup.current = false;
     }
   }, [view]);
+  useLookupIntro(view === 'lookup');
   useResultFeedback(data ? `${data.lookup.ip}-${latency}` : undefined);
   useSourceScroll(view === 'sources' || panel !== null);
 
@@ -181,6 +186,10 @@ export default function App() {
   }
   const connectionUnavailable = error?.code === 'public_ipv4_unavailable';
   const unsupported = error?.code === 'ipv6_not_supported';
+  const currentConnection: ConnectionSnapshot | null =
+    target.kind === 'connection' && data
+      ? { data, method: endpoint === '/v1/connection' ? 'site' : 'ipify' }
+      : null;
   const offerIpify = !allowIpify && isLoopbackOrigin() && (connectionUnavailable || unsupported);
 
   function setLocalDiscovery(enabled: boolean) {
@@ -209,9 +218,16 @@ export default function App() {
             <LensMark />
             <span>VPNLens</span>
           </a>
-          <span className="product-subtitle">IP intelligence</span>
+          <a className="product-api-link" href="/docs" target="_blank" rel="noreferrer">
+            <UiIcon name="code" size={18} />
+            API docs
+          </a>
         </header>
-        <main id="main-content" tabIndex={-1}>
+        <main
+          className={view === 'sources' ? 'report-sheet' : undefined}
+          id="main-content"
+          tabIndex={-1}
+        >
           {view === 'sources' ? (
             <SourcesView
               data={sources}
@@ -220,152 +236,173 @@ export default function App() {
               refresh={() => void refreshSources()}
             />
           ) : (
-            <>
-              <h1 className="connection-title">IP check</h1>
-              <form className="connection-search" onSubmit={submit} noValidate>
-                <label htmlFor="ip-input">IPv4 address</label>
-                <div className="connection-search-row">
-                  <input
-                    ref={inputRef}
-                    id="ip-input"
-                    value={input}
-                    onChange={(event) => {
-                      ++inputEditId.current;
-                      setInput(event.target.value);
-                      setFieldError(null);
-                    }}
-                    placeholder="Enter an IP address"
-                    autoComplete="off"
-                    spellCheck={false}
-                    inputMode="decimal"
-                    aria-invalid={!!fieldError}
-                    aria-describedby={fieldError ? 'ip-error' : undefined}
-                  />
-                  <button className="lookup-action" type="submit">
-                    Look up
-                    <UiIcon name="arrow" />
-                  </button>
-                </div>
-                {fieldError && (
-                  <p className="connection-field-error" id="ip-error" role="alert">
-                    {fieldError}
-                  </p>
-                )}
-              </form>
-              <section
-                className="connection-result"
-                aria-label="Connection result"
-                aria-busy={querying}
-              >
-                <div className="connection-result-header">
-                  <p>{target.kind === 'connection' ? 'Your connection' : 'Manual lookup'}</p>
-                  <button
-                    className="recheck-action"
-                    onClick={() => void performCheck(ownConnection)}
-                    disabled={offerIpify}
-                    type="button"
-                  >
-                    <UiIcon name="refresh" />
-                    Recheck
-                  </button>
-                </div>
-                {data ? (
-                  <ConnectionResult data={data} />
-                ) : (
-                  <div className="connection-empty" role={error ? 'alert' : undefined}>
-                    <h2>
-                      {querying
-                        ? 'Checking…'
-                        : offerIpify
-                          ? 'Detect your public IPv4'
-                          : connectionUnavailable
-                            ? 'Your public IPv4 is unavailable here'
-                            : unsupported
-                              ? 'IPv6 is not supported yet.'
-                              : error
-                                ? 'Check unavailable'
-                                : 'Ready to check'}
-                    </h2>
-                    <p>
-                      {querying
-                        ? 'Reading local evidence.'
-                        : offerIpify
-                          ? 'On this local site, your browser will contact ipify, which sees your public IPv4.'
-                          : connectionUnavailable || unsupported
-                            ? 'Enter an IPv4 address above.'
-                            : error?.message || 'Enter an IPv4 address to begin.'}
-                    </p>
-                    {querying ? (
-                      <div className="connection-loading" aria-hidden="true">
-                        <span />
-                        <span />
-                        <span />
-                      </div>
-                    ) : offerIpify ? (
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => setLocalDiscovery(true)}
-                      >
-                        Enable automatic detection
-                      </button>
-                    ) : error && !connectionUnavailable && !unsupported ? (
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => void performCheck(target)}
-                      >
-                        Retry
-                      </button>
-                    ) : null}
-                  </div>
-                )}
-              </section>
-              <div className="connection-disclosures">
-                <div className="disclosure-actions">
-                  {(['details', 'json'] as const).map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      disabled={!data || querying}
-                      aria-expanded={panel === name}
-                      aria-controls={`${name}-panel`}
-                      onClick={() => setPanel(panel === name ? null : name)}
-                    >
-                      {name === 'details' ? 'Details' : 'JSON'}
-                      <UiIcon name="arrow" size={14} />
+            <div className="lookup-workspace">
+              <InspectionHero
+                key={data?.lookup.ip}
+                data={data}
+                querying={querying}
+                manual={target.kind === 'manual'}
+              />
+              <section className="lookup-controls" aria-label="Look up an IPv4 address">
+                <form className="connection-search" onSubmit={submit} noValidate data-lookup-intro>
+                  <label htmlFor="ip-input">IPv4 address</label>
+                  <div className="connection-search-row">
+                    <input
+                      ref={inputRef}
+                      id="ip-input"
+                      value={input}
+                      onChange={(event) => {
+                        ++inputEditId.current;
+                        setInput(event.target.value);
+                        setFieldError(null);
+                      }}
+                      placeholder="Enter an IP address"
+                      autoComplete="off"
+                      spellCheck={false}
+                      inputMode="decimal"
+                      aria-invalid={!!fieldError}
+                      aria-describedby={fieldError ? 'ip-error' : undefined}
+                    />
+                    <button className="lookup-action" type="submit">
+                      Look up
+                      <UiIcon name="arrow" />
                     </button>
-                  ))}
-                </div>
-                {data && (
-                  <time
-                    className="check-time"
-                    dateTime={data.decision.evaluated_at}
-                    title={data.decision.evaluated_at}
-                  >
-                    Checked{' '}
-                    {new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit' }).format(
-                      new Date(data.decision.evaluated_at),
+                  </div>
+                  {fieldError && (
+                    <p className="connection-field-error" id="ip-error" role="alert">
+                      {fieldError}
+                    </p>
+                  )}
+                </form>
+              </section>
+              <div className="report-sheet" data-lookup-intro>
+                <section
+                  className="connection-result"
+                  aria-label="Connection result"
+                  aria-busy={querying}
+                >
+                  <div className="connection-result-header">
+                    <p>{target.kind === 'connection' ? 'Your connection' : 'Manual lookup'}</p>
+                    <button
+                      className="recheck-action"
+                      onClick={() => void performCheck(ownConnection)}
+                      disabled={offerIpify}
+                      type="button"
+                    >
+                      <UiIcon name="refresh" />
+                      Recheck
+                    </button>
+                  </div>
+                  {data ? (
+                    <ConnectionResult data={data} />
+                  ) : (
+                    <div className="connection-empty" role={error ? 'alert' : undefined}>
+                      <h2>
+                        {querying
+                          ? 'Checking…'
+                          : offerIpify
+                            ? 'Detect your public IPv4'
+                            : connectionUnavailable
+                              ? 'Your public IPv4 is unavailable here'
+                              : unsupported
+                                ? 'IPv6 is not supported yet.'
+                                : error
+                                  ? 'Check unavailable'
+                                  : 'Ready to check'}
+                      </h2>
+                      <p>
+                        {querying
+                          ? 'Reading local evidence.'
+                          : offerIpify
+                            ? 'On this local site, your browser will contact ipify, which sees your public IPv4.'
+                            : connectionUnavailable || unsupported
+                              ? 'Enter an IPv4 address above.'
+                              : error?.message || 'Enter an IPv4 address to begin.'}
+                      </p>
+                      {querying ? (
+                        <div className="connection-loading" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                      ) : offerIpify ? (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => setLocalDiscovery(true)}
+                        >
+                          Enable automatic detection
+                        </button>
+                      ) : error && !connectionUnavailable && !unsupported ? (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => void performCheck(target)}
+                        >
+                          Retry
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </section>
+                {currentConnection && baseline && (
+                  <ConnectionComparison
+                    baseline={baseline}
+                    current={currentConnection}
+                    onClear={() => setBaseline(null)}
+                  />
+                )}
+                <div className="connection-disclosures">
+                  <div className="disclosure-actions">
+                    {(['details', 'json'] as const).map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        disabled={!data || querying}
+                        aria-expanded={panel === name}
+                        aria-controls={`${name}-panel`}
+                        onClick={() => setPanel(panel === name ? null : name)}
+                      >
+                        {name === 'details' ? 'Details' : 'JSON'}
+                        <UiIcon name="arrow" size={14} />
+                      </button>
+                    ))}
+                    {currentConnection && !baseline && (
+                      <button type="button" onClick={() => setBaseline(currentConnection)}>
+                        Compare VPN
+                      </button>
                     )}
-                  </time>
+                  </div>
+                  {data && (
+                    <time
+                      className="check-time"
+                      dateTime={data.decision.evaluated_at}
+                      title={data.decision.evaluated_at}
+                    >
+                      Checked{' '}
+                      {new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit' }).format(
+                        new Date(data.decision.evaluated_at),
+                      )}
+                    </time>
+                  )}
+                </div>
+                {data && panel === 'details' && (
+                  <section className="connection-details" id="details-panel" aria-label="Details">
+                    <ResultView data={data.lookup} compact />
+                  </section>
+                )}
+                {data && panel === 'json' && (
+                  <section id="json-panel" aria-label="JSON">
+                    <JsonView
+                      data={data.lookup}
+                      loading={querying}
+                      latency={latency}
+                      endpoint={endpoint}
+                      lookupExcerpt
+                    />
+                  </section>
                 )}
               </div>
-              {data && panel === 'details' && (
-                <section className="connection-details" id="details-panel" aria-label="Details">
-                  <ResultView data={data.lookup} compact />
-                </section>
-              )}
-              {data && panel === 'json' && (
-                <section id="json-panel" aria-label="JSON">
-                  <JsonView
-                    data={data.lookup}
-                    loading={querying}
-                    latency={latency}
-                    endpoint={endpoint}
-                    lookupExcerpt
-                  />
-                </section>
-              )}
               <span className="sr-only" role="status" aria-live="polite">
                 {querying
                   ? 'Checking connection'
@@ -373,28 +410,27 @@ export default function App() {
                     ? `Check complete for ${data.lookup.ip}`
                     : ''}
               </span>
-            </>
+            </div>
           )}
         </main>
         <footer className="connection-footer">
           {data?.lookup.selected_sources.geolocation?.provider === 'dbip_city_lite' ? (
             <a href="https://db-ip.com">IP Geolocation by DB-IP</a>
-          ) : (
-            <span>Public evidence. Clearer decisions.</span>
-          )}
+          ) : null}
           <nav aria-label="More information">
             <a href={view === 'sources' ? '#lookup' : '#sources'}>
               {view === 'sources' ? 'IP check' : 'Sources'}
-            </a>
-            <a href="/docs" target="_blank" rel="noreferrer">
-              API
             </a>
             <details>
               <summary>About</summary>
               <div className="about-content">
                 <p>
-                  VPNLens checks local public evidence. Coverage is partial; an unknown result does
-                  not establish a non-VPN connection. This demo stays accessible to VPN users.
+                  VPNLens checks public evidence for VPN, Tor, and proxy associations. Coverage
+                  varies by source.
+                </p>
+                <p>
+                  The risk score reflects matching evidence. A direct match scores 80, a
+                  network-only match scores 35, and an address without matching evidence is unrated.
                 </p>
                 {allowIpify && (
                   <div>

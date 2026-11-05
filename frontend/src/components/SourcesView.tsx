@@ -240,8 +240,8 @@ export function SourcesView({
               </p>
               <p>
                 These sources have partial coverage. Proxy exit associations require qualifying
-                observations. No residential proxy label, risk score, or detection-accuracy
-                percentage is inferred.
+                observations. The lookup’s risk score reflects matched evidence. The sources provide
+                no estimate of detection accuracy or residential proxy use.
               </p>
               <a href="/docs" target="_blank" rel="noreferrer">
                 Read the API contract <UiIcon name="arrow" size={16} />

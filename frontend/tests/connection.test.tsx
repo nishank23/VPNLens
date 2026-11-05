@@ -5,7 +5,11 @@ import App from '../src/App';
 import { checkConnection, checkIP, isDecisionResponse } from '../src/api';
 import type { DecisionResponse } from '../src/types';
 
-vi.mock('../src/useMotion', () => ({ useResultFeedback: vi.fn(), useSourceScroll: vi.fn() }));
+vi.mock('../src/useMotion', () => ({
+  useLookupIntro: vi.fn(),
+  useResultFeedback: vi.fn(),
+  useSourceScroll: vi.fn(),
+}));
 
 function fixture(ip = '8.8.8.8', block = false): DecisionResponse {
   return {
@@ -114,6 +118,89 @@ describe('decision API boundary', () => {
 });
 
 describe('focused live connection screen', () => {
+  it.each([
+    { listed: true, network: false, verdict: 'VPN detected', score: '80 / 100' },
+    { listed: false, network: true, verdict: 'VPN network match', score: '35 / 100' },
+    { listed: false, network: false, verdict: 'No VPN match', score: 'Unrated' },
+  ])('exposes $verdict and its evidence score without WebGL', async (example) => {
+    const data = fixture('8.8.8.8', example.listed);
+    const row = data.lookup.results[0];
+    row.prefix = '8.8.8.0/24';
+    row.origin_group = '15169';
+    if (example.network) {
+      Object.assign(row.security, {
+        vpn_assessment: 'network_only',
+        proxy_status: 'unknown',
+        residential_proxy_status: 'unknown',
+        residential_proxy_reason: 'No qualifying evidence',
+        additional_evidence: [],
+      });
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(data)));
+    render(<App />);
+
+    const inspect = await screen.findByRole('button', { name: 'Inspect IP' });
+    expect(screen.getByRole('heading', { level: 1, name: '8.8.8.8' })).toBeTruthy();
+    expect(screen.getByText(example.verdict).closest('[hidden]')).toBeTruthy();
+    fireEvent.click(inspect);
+    const readout = screen.getByLabelText('IP inspection');
+    expect(readout.hidden).toBe(false);
+    expect(readout.textContent).toContain('AS15169');
+    expect(readout.textContent).toContain(example.score);
+    fireEvent.keyDown(inspect, { key: 'Escape' });
+    expect(readout.hidden).toBe(true);
+  });
+
+  it('closes an open inspection when a lookup replaces the current IP', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(fixture('8.8.8.8')))
+        .mockResolvedValueOnce(response(fixture('1.1.1.1'))),
+    );
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Inspect IP' }));
+    expect(screen.getByRole('region', { name: 'IP inspection' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('IPv4 address'), { target: { value: '1.1.1.1' } });
+    fireEvent.click(screen.getByRole('button', { name: /look up/i }));
+
+    await screen.findByRole('heading', { level: 1, name: '1.1.1.1' });
+    expect(screen.getByRole('button', { name: 'Inspect IP' }).getAttribute('aria-expanded')).toBe(
+      'false',
+    );
+    expect(screen.queryByRole('region', { name: 'IP inspection' })).toBeNull();
+  });
+
+  it('compares browser rechecks against a saved baseline and distinguishes an unchanged IP', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response(fixture('8.8.8.8')))
+      .mockResolvedValueOnce(response(fixture('8.8.8.8')))
+      .mockResolvedValueOnce(response(fixture('1.1.1.1')));
+    vi.stubGlobal('fetch', fetch);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare VPN' }));
+    expect(screen.getByText(/Baseline saved/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Recheck' }));
+    expect(await screen.findByText('Public IPv4 stayed the same.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recheck' }));
+    expect(await screen.findByText('Public IPv4 changed.')).toBeTruthy();
+    expect(screen.getByText(/this exit may be missing/)).toBeTruthy();
+    expect(screen.getByRole('row', { name: 'Public IPv4 8.8.8.8 1.1.1.1' })).toBeTruthy();
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/v1/connection',
+      '/v1/connection',
+      '/v1/connection',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear baseline' }));
+    expect(screen.queryByRole('table', { name: 'Baseline and current connection' })).toBeNull();
+  });
+
   it('links to DB-IP when the current lookup uses its City Lite release', async () => {
     const data = fixture();
     data.lookup.selected_sources.geolocation = {

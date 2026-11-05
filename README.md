@@ -135,6 +135,10 @@ fresh qualifying evidence can recommend restricting playback. See
 [connection flow, policy and proxy trust](docs/public-demo.md) before hosting.
 [Implementation verification and screenshots](docs/public-demo-verification.md) record local results and limits.
 
+To investigate a missed VPN match, select **Compare VPN**, toggle
+the VPN, then select **Recheck**. The page compares the observed IPv4, routing,
+location, and evidence. The baseline stays in the open tab.
+
 Extended evidence defaults to `VPNLENS_EXTENDED_EVIDENCE=false`. Its explicit
 additive migration is `python -m vpnlens.setup --extended-evidence`; review the
 [activation and publication procedure](docs/public-evidence.md#opt-in-local-lookup-and-publication)

@@ -48,47 +48,49 @@ export function ConnectionResult({ data }: { data: DecisionResponse }) {
   const place = [location.city_name, country].filter(Boolean).join(', ') || 'Unavailable';
   return (
     <div data-result-content>
-      <div className="connection-main">
-        <div>
-          <p className="connection-ip identifier">{data.lookup.ip}</p>
+      <div className="connection-report">
+        <div className="connection-main">
           <dl className="connection-address-details">
             <div>
               <dt>IP location</dt>
               <dd>{place}</dd>
             </div>
-            <div>
-              <dt>{originGroups.length > 1 ? 'Origin groups' : 'Origin group'}</dt>
-              <dd>
-                {originGroups.length ? <code>{originGroups.join(' · ')}</code> : 'Unavailable'}
-              </dd>
-            </div>
+            {originGroups.length > 0 && (
+              <div>
+                <dt>{originGroups.length > 1 ? 'Origin groups' : 'Origin group'}</dt>
+                <dd>
+                  <code>{originGroups.join(' · ')}</code>
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
         <div className="connection-finding">
-          <div className="finding-heading">
-            <h2>{title}</h2>
-            {listed && <span className="finding-badge listed">Listed</span>}
-          </div>
+          <h2 className={listed ? 'listed' : undefined}>{title}</h2>
           <p>{note}</p>
           {data.decision.scheduled_source_health === 'degraded' && (
             <p className="degraded-note">Some sources are missing or stale.</p>
           )}
         </div>
+        <section className="evidence-summary" aria-label="VPN, Tor, and proxy matches">
+          <dl className="connection-states">
+            {(
+              [
+                ['VPN', vpn],
+                ['Tor', tor],
+                ['Proxy', proxy],
+              ] as const
+            ).map(([label, positive]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd className={positive ? 'listed' : undefined}>
+                  {positive ? 'Listed' : 'No match'}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       </div>
-      <dl className="connection-states">
-        {(
-          [
-            ['VPN', vpn],
-            ['Tor', tor],
-            ['Proxy', proxy],
-          ] as const
-        ).map(([label, positive]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd className={positive ? 'listed' : undefined}>{positive ? 'Listed' : 'No match'}</dd>
-          </div>
-        ))}
-      </dl>
     </div>
   );
 }

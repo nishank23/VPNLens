@@ -5,6 +5,37 @@ import Lenis from 'lenis';
 
 gsap.registerPlugin(ScrollTrigger);
 
+export function useLookupIntro(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (preference.matches) return;
+
+    const context = gsap.context(() => {
+      gsap.fromTo(
+        '[data-lookup-intro]',
+        { y: 8, opacity: 0.88 },
+        {
+          y: 0,
+          opacity: 1,
+          stagger: 0.055,
+          duration: 0.32,
+          ease: 'power2.out',
+          clearProps: 'transform,opacity',
+        },
+      );
+    });
+    const stop = () => {
+      if (preference.matches) context.revert();
+    };
+    preference.addEventListener('change', stop);
+    return () => {
+      preference.removeEventListener('change', stop);
+      context.revert();
+    };
+  }, [active]);
+}
+
 export function useResultFeedback(key: string | undefined) {
   useEffect(() => {
     if (!key) return;
