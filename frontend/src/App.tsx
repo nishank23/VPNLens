@@ -12,6 +12,7 @@ import type { DecisionResponse, SourceResponse } from './types';
 import { LensMark, UiIcon } from './icons';
 import { ConnectionResult } from './components/ConnectionResult';
 import { ConnectionComparison, type ConnectionSnapshot } from './components/ConnectionComparison';
+import { InspectionBackdrop } from './components/InspectionBackdrop';
 import { InspectionHero } from './components/InspectionHero';
 import { ResultView } from './components/ResultView';
 import { JsonView } from './components/JsonView';
@@ -237,12 +238,15 @@ export default function App() {
             />
           ) : (
             <div className="lookup-workspace">
-              <InspectionHero
-                key={data?.lookup.ip}
-                data={data}
-                querying={querying}
-                manual={target.kind === 'manual'}
-              />
+              <div className="inspection-hero">
+                <InspectionHero
+                  key={data?.lookup.ip}
+                  data={data}
+                  querying={querying}
+                  manual={target.kind === 'manual'}
+                />
+                <InspectionBackdrop />
+              </div>
               <section className="lookup-controls" aria-label="Look up an IPv4 address">
                 <form className="connection-search" onSubmit={submit} noValidate data-lookup-intro>
                   <label htmlFor="ip-input">IPv4 address</label>

@@ -142,8 +142,6 @@ export function InspectionHero({
     <section
       className="inspection-stage relative isolate grid place-items-center overflow-hidden text-center"
       aria-labelledby="inspection-address"
-      data-lookup-intro={data ? undefined : ''}
-      data-result-content={data ? '' : undefined}
       ref={stage}
       onPointerEnter={moveLens}
       onPointerMove={moveLens}

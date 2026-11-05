@@ -33,7 +33,6 @@ function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
     () => ({
       width: { value: size.width },
       height: { value: size.height },
-      ground: { value: glassBackground },
       dotColor: { value: new Color('#303034') },
     }),
     [size.width, size.height],
@@ -139,6 +138,8 @@ function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
       <mesh position={[0, 0, -100]}>
         <planeGeometry args={[size.width, size.height]} />
         <shaderMaterial
+          transparent
+          depthWrite={false}
           uniforms={grid}
           vertexShader={`
             varying vec2 vUv;
@@ -151,14 +152,13 @@ function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
             varying vec2 vUv;
             uniform float width;
             uniform float height;
-            uniform vec3 ground;
             uniform vec3 dotColor;
             void main() {
               vec2 center = vUv - 0.5;
               vec2 cell = mod(center * vec2(width, height) + 10.0, 20.0) - 10.0;
               float dotMask = 1.0 - smoothstep(0.45, 1.25, length(cell));
               float fade = 1.0 - smoothstep(0.08, 0.48, length(center));
-              gl_FragColor = vec4(mix(ground, dotColor, dotMask * fade), 1.0);
+              gl_FragColor = vec4(dotColor, dotMask * fade);
               #include <colorspace_fragment>
             }
           `}

@@ -6,6 +6,182 @@
   background: #09090b;
 }
 
+.inspection-hero {
+  position: relative;
+  isolation: isolate;
+}
+
+.inspection-hero::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 14% 38%, rgb(28 89 78 / 21%), transparent 54%),
+    radial-gradient(ellipse at 87% 67%, rgb(22 65 76 / 24%), transparent 49%);
+  mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+  pointer-events: none;
+  content: '';
+}
+
+.inspection-backdrop {
+  --topology-ink: #91f5d9;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse at center, #000 52%, transparent 100%);
+}
+
+.inspection-backdrop > svg {
+  position: absolute;
+  width: 15%;
+  height: 66%;
+}
+
+.inspection-subnet-west {
+  top: 9%;
+  left: 1%;
+}
+
+.inspection-subnet-east {
+  --topology-ink: #8ad9ee;
+  top: 25%;
+  right: 1%;
+}
+
+@media (max-width: 880px) {
+  .inspection-backdrop > svg {
+    top: 1%;
+    width: 41%;
+    height: 25%;
+  }
+}
+
+.inspection-backdrop :is(line, circle) {
+  vector-effect: non-scaling-stroke;
+}
+
+.inspection-links {
+  stroke: var(--topology-ink);
+  opacity: 0.21;
+}
+
+.inspection-nodes {
+  fill: #10201e;
+  stroke: var(--topology-ink);
+  opacity: 0.56;
+}
+
+.inspection-backdrop :is(.inspection-hop, .inspection-packet, .inspection-ripple) {
+  opacity: 0;
+}
+
+.inspection-hop {
+  stroke: var(--topology-ink);
+  stroke-width: 1.4;
+}
+
+.inspection-packet {
+  fill: var(--topology-ink);
+}
+
+.inspection-ripple {
+  fill: none;
+  stroke: var(--topology-ink);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.inspection-motion-toggle {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  z-index: 1;
+  display: none;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+}
+
+.inspection-motion-toggle:hover,
+.inspection-motion-toggle:focus-visible {
+  border-color: var(--border);
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .inspection-motion-toggle {
+    display: grid;
+  }
+
+  .inspection-hop {
+    animation: inspection-hop-light 10s linear var(--hop-delay) infinite;
+  }
+
+  .inspection-packet {
+    animation: inspection-packet-travel 10s linear var(--hop-delay) infinite;
+  }
+
+  .inspection-ripple {
+    animation: inspection-relay-ripple 10s var(--ui-ease) calc(var(--hop-delay) + 0.8s) infinite;
+  }
+
+  .inspection-backdrop[data-paused='true']
+    :is(.inspection-hop, .inspection-packet, .inspection-ripple) {
+    animation-play-state: paused;
+  }
+}
+
+@keyframes inspection-hop-light {
+  0%,
+  17%,
+  100% {
+    opacity: 0;
+  }
+
+  3%,
+  8% {
+    opacity: 0.58;
+  }
+}
+
+@keyframes inspection-packet-travel {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+
+  1%,
+  7% {
+    opacity: 1;
+  }
+
+  8%,
+  100% {
+    opacity: 0;
+    transform: translateX(var(--hop-length));
+  }
+}
+
+@keyframes inspection-relay-ripple {
+  0% {
+    opacity: 0.8;
+    transform: scale(0.55);
+  }
+
+  15%,
+  100% {
+    opacity: 0;
+    transform: scale(2.75);
+  }
+}
+
 .inspection-stage {
   --lens-size: 222px;
   min-height: clamp(405px, 58svh, 610px);
@@ -18,6 +194,10 @@
   background: radial-gradient(circle, #303034 1px, transparent 1.2px) center / 20px 20px;
   mask-image: radial-gradient(ellipse at center, #000 15%, transparent 74%);
   content: '';
+}
+
+.inspection-stage[data-glass-ready='true']::before {
+  visibility: hidden;
 }
 
 .inspection-copy {
