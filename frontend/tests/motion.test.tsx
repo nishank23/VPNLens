@@ -31,6 +31,9 @@ vi.mock('gsap', () => ({
 vi.mock('gsap/ScrollTrigger', () => ({
   ScrollTrigger: { refresh: motion.refresh, update: motion.update },
 }));
+vi.mock('gsap/CustomEase', () => ({
+  CustomEase: { create: () => (progress: number) => progress },
+}));
 vi.mock('lenis', () => ({
   default: class {
     constructor() {
@@ -62,9 +65,13 @@ beforeEach(() => {
     configurable: true,
     value: { ready: Promise.resolve() },
   });
+  const result = document.createElement('div');
+  result.setAttribute('data-result-content', '');
+  document.body.append(result);
 });
 afterEach(() => {
   cleanup();
+  document.querySelector('[data-result-content]')?.remove();
   vi.unstubAllGlobals();
 });
 

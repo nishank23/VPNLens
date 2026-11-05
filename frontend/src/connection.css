@@ -21,6 +21,12 @@
   font-size: 14px;
   line-height: 1.5;
 }
+.public-demo :is(a, button, input, summary) {
+  transition:
+    color 0.24s var(--ui-ease),
+    background-color 0.24s var(--ui-ease),
+    border-color 0.24s var(--ui-ease);
+}
 .connection-shell {
   max-width: 1224px;
   padding: 0 clamp(16px, 3vw, 40px);

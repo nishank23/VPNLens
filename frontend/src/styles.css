@@ -1,4 +1,5 @@
 :root {
+  --ui-ease: cubic-bezier(0.22, 1, 0.36, 1);
   font-family: 'IBM Plex Sans', sans-serif;
   color: #131416;
   background: #f1f6f6;
@@ -370,7 +371,7 @@ pre,
   font-size: 14px;
   font-weight: 500;
   flex: none;
-  transition: background 0.15s ease;
+  transition: background 0.15s var(--ui-ease);
 }
 .primary-button:hover {
   background: #24434a;

@@ -162,7 +162,7 @@ export default function App() {
     }
   }, [view]);
   useLookupIntro(view === 'lookup');
-  useResultFeedback(data ? `${data.lookup.ip}-${latency}` : undefined);
+  useResultFeedback(view === 'lookup' && data ? `${data.lookup.ip}-${latency}` : undefined);
   useSourceScroll(view === 'sources' || panel !== null);
 
   function submit(event: FormEvent) {
@@ -213,7 +213,7 @@ export default function App() {
         Skip to content
       </a>
       <div className="connection-shell">
-        <header className="product-bar">
+        <header className="product-bar" data-lookup-intro>
           <a href="#lookup" className="brand" aria-label="VPNLens lookup">
             <LensMark />
             <span>VPNLens</span>
@@ -275,13 +275,13 @@ export default function App() {
                   )}
                 </form>
               </section>
-              <div className="report-sheet" data-lookup-intro>
+              <div className="report-sheet">
                 <section
                   className="connection-result"
                   aria-label="Connection result"
                   aria-busy={querying}
                 >
-                  <div className="connection-result-header">
+                  <div className="connection-result-header" data-lookup-intro>
                     <p>{target.kind === 'connection' ? 'Your connection' : 'Manual lookup'}</p>
                     <button
                       className="recheck-action"

@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent, ReactNode } from 'react';
 import { summarize, countryName } from '../presentation';
 import type { DecisionResponse } from '../types';
@@ -83,6 +83,12 @@ export function InspectionHero({
   const revealed = pinned || hovered;
   const facts = data ? inspectionFacts(data) : null;
 
+  const hideHoverLens = useCallback(() => {
+    motion.current.target = null;
+    motion.current.invalidate?.();
+    setHovered(false);
+  }, []);
+
   useEffect(() => {
     const host = stage.current;
     if (!host || typeof IntersectionObserver === 'undefined') return;
@@ -91,17 +97,19 @@ export function InspectionHero({
     );
     const update = () => {
       setCapable(preference.matches && 'WebGL2RenderingContext' in window);
-      setHovered(false);
+      hideHoverLens();
     };
     const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting));
     update();
     observer.observe(host);
     preference.addEventListener('change', update);
+    window.addEventListener('blur', hideHoverLens);
     return () => {
       observer.disconnect();
       preference.removeEventListener('change', update);
+      window.removeEventListener('blur', hideHoverLens);
     };
-  }, []);
+  }, [hideHoverLens]);
 
   useEffect(() => {
     if (!revealed) return;
@@ -123,12 +131,6 @@ export function InspectionHero({
     motion.current.invalidate?.();
   }
 
-  function parkLens() {
-    motion.current.target = null;
-    motion.current.invalidate?.();
-    setHovered(false);
-  }
-
   function pinLens(next: boolean) {
     if (next) floating.current?.removeAttribute('data-aligned');
     motion.current.pinned = next;
@@ -140,9 +142,13 @@ export function InspectionHero({
     <section
       className="inspection-stage relative isolate grid place-items-center overflow-hidden text-center"
       aria-labelledby="inspection-address"
+      data-lookup-intro={data ? undefined : ''}
+      data-result-content={data ? '' : undefined}
       ref={stage}
+      onPointerEnter={moveLens}
       onPointerMove={moveLens}
-      onPointerLeave={parkLens}
+      onPointerLeave={hideHoverLens}
+      onPointerCancel={hideHoverLens}
     >
       {data && capable && visible && (
         <GlassFallback>

@@ -2,9 +2,9 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { MeshTransmissionMaterial } from '@react-three/drei/core/MeshTransmissionMaterial.js';
 import { Text } from '@react-three/drei/core/Text.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { RefObject } from 'react';
+import type { ComponentRef, RefObject } from 'react';
 import { Color, MathUtils, SphereGeometry } from 'three';
-import type { Group } from 'three';
+import type { Group, ShaderMaterial } from 'three';
 import font from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff?url';
 import type { LensMotion } from './InspectionHero';
 
@@ -17,11 +17,14 @@ interface SceneProps {
 }
 
 const glassBackground = new Color('#09090b');
+const lensLerp = 0.1;
 
 function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
   const invalidate = useThree((state) => state.invalidate);
   const size = useThree((state) => state.size);
   const lens = useRef<Group>(null);
+  const body = useRef<ComponentRef<typeof MeshTransmissionMaterial>>(null);
+  const rim = useRef<ShaderMaterial>(null);
   const [type, setType] = useState({ x: 0, y: 0, size: 0, spacing: 0 });
   const synced = useRef(false);
   const [radius, setRadius] = useState(100);
@@ -86,44 +89,49 @@ function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
   useFrame((_, delta) => {
     const glass = lens.current;
     const host = stage.current;
-    if (!glass || !host || !synced.current || !type.size) return;
-    host.dataset.glassReady = 'true';
+    const bodyMaterial = body.current;
+    const rimMaterial = rim.current;
+    if (!glass || !host || !bodyMaterial || !rimMaterial || !synced.current || !type.size) return;
+    if (!host.dataset.glassReady) host.dataset.glassReady = 'true';
 
     const centerX = size.width / 2 + type.x;
     const centerY = size.height / 2 - type.y;
     const { target, pinned } = motion.current;
-    const point = pinned
-      ? { x: centerX, y: centerY }
-      : (target ?? {
-          x: centerX + Math.min(size.width * 0.235, 275),
-          y: centerY - radius * 0.7,
-        });
-    const x = MathUtils.clamp(point.x, radius, size.width - radius) - size.width / 2;
-    const y = size.height / 2 - MathUtils.clamp(point.y, radius, size.height - radius);
+    const point = pinned ? { x: centerX, y: centerY } : target;
+    const x = point
+      ? MathUtils.clamp(point.x, radius, size.width - radius) - size.width / 2
+      : glass.position.x;
+    const y = point
+      ? size.height / 2 - MathUtils.clamp(point.y, radius, size.height - radius)
+      : glass.position.y;
+    const tiltX = point && !pinned ? (y / size.height) * -0.44 : 0;
+    const tiltY = point && !pinned ? (x / size.width) * 0.44 : 0;
     const step = Math.min(delta || 1 / 60, 1 / 30);
-    glass.position.x = MathUtils.damp(glass.position.x, x, 17, step);
-    glass.position.y = MathUtils.damp(glass.position.y, y, 17, step);
-    glass.rotation.y = MathUtils.damp(
-      glass.rotation.y,
-      pinned ? 0 : (x / size.width) * 0.44,
-      12,
-      step,
-    );
-    glass.rotation.x = MathUtils.damp(
-      glass.rotation.x,
-      pinned ? 0 : (y / size.height) * -0.44,
-      12,
-      step,
-    );
+    // Keep the same easing at different display refresh rates.
+    const blend = 1 - (1 - lensLerp) ** (step * 60);
+    glass.position.x = MathUtils.lerp(glass.position.x, x, blend);
+    glass.position.y = MathUtils.lerp(glass.position.y, y, blend);
+    glass.rotation.x = MathUtils.lerp(glass.rotation.x, tiltX, blend);
+    glass.rotation.y = MathUtils.lerp(glass.rotation.y, tiltY, blend);
+    const targetScale = point ? 1 : 0;
+    const nextScale = MathUtils.lerp(glass.scale.x, targetScale, blend);
+    const scale = Math.abs(nextScale - targetScale) < 0.005 ? targetScale : nextScale;
+    glass.scale.setScalar(scale);
+    glass.visible = scale > 0;
+    bodyMaterial.visible = glass.visible;
+    bodyMaterial.opacity = scale;
+    rimMaterial.uniforms.fade.value = scale;
+
     const floatingElement = floating.current;
     const distance = Math.abs(glass.position.x - x) + Math.abs(glass.position.y - y);
-    if (floatingElement) {
+    if (floatingElement && glass.visible) {
       floatingElement.style.transform = `translate3d(${glass.position.x + size.width / 2}px, ${size.height / 2 - glass.position.y}px, 0) translate(-50%, -50%)`;
-      if (distance <= 28 && !floatingElement.hasAttribute('data-aligned')) {
+      if (scale >= 0.85 && distance <= 28 && !floatingElement.hasAttribute('data-aligned')) {
         floatingElement.setAttribute('data-aligned', '');
       }
     }
-    if (distance > 0.35) invalidate();
+    const rotationGap = Math.abs(glass.rotation.x - tiltX) + Math.abs(glass.rotation.y - tiltY);
+    if (scale !== targetScale || (point && (distance > 0.35 || rotationGap > 0.002))) invalidate();
   });
 
   return (
@@ -171,9 +179,13 @@ function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
           {ip}
         </Text>
       )}
-      <group ref={lens} position={[0, 0, 55]}>
+      <group ref={lens} position={[0, 0, 55]} scale={0} visible={false}>
         <mesh geometry={geometry}>
           <MeshTransmissionMaterial
+            ref={body}
+            transparent
+            visible={false}
+            opacity={0}
             background={glassBackground}
             transmission={1}
             thickness={36}
@@ -188,9 +200,10 @@ function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
         </mesh>
         <mesh geometry={geometry} scale={1.001} renderOrder={2}>
           <shaderMaterial
+            ref={rim}
             transparent
             depthWrite={false}
-            uniforms={{ radius: { value: radius } }}
+            uniforms={{ radius: { value: radius }, fade: { value: 0 } }}
             vertexShader={`
               uniform float radius;
               varying vec2 vSurface;
@@ -200,6 +213,7 @@ function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
               }
             `}
             fragmentShader={`
+              uniform float fade;
               varying vec2 vSurface;
               void main() {
                 float r = length(vSurface);
@@ -210,7 +224,8 @@ function LensScene({ ip, stage, address, floating, motion }: SceneProps) {
                 float rim = (r - 0.973) * 80.0;
                 float reflection = exp(-highlight * highlight) * pow(key, 3.0);
                 float bounce = exp(-rim * rim) * pow(max(0.0, dot(direction, vec2(0.8, -0.6))), 5.0);
-                gl_FragColor = vec4(vec3(0.71, 0.87, 0.93), edge * (0.16 + key * 0.28) + reflection * 0.25 + bounce * 0.18);
+                float alpha = edge * (0.16 + key * 0.28) + reflection * 0.25 + bounce * 0.18;
+                gl_FragColor = vec4(vec3(0.71, 0.87, 0.93), alpha * fade);
                 #include <colorspace_fragment>
               }
             `}
